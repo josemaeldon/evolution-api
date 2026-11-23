@@ -107,6 +107,7 @@ export class Button {
   copyCode?: string;
   phoneNumber?: string;
   currency?: string;
+  amount?: number;
   name?: string;
   keyType?: KeyType;
   key?: string;

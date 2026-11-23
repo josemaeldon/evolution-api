@@ -394,7 +394,7 @@ export const listMessageSchema: JSONSchema7 = {
       },
     },
   },
-  required: ['number', 'title', 'footerText', 'buttonText', 'sections'],
+  required: ['number', 'title', 'buttonText', 'sections'],
 };
 
 export const buttonsMessageSchema: JSONSchema7 = {
@@ -408,6 +408,7 @@ export const buttonsMessageSchema: JSONSchema7 = {
     footer: { type: 'string' },
     buttons: {
       type: 'array',
+      minItems: 1,
       items: {
         type: 'object',
         properties: {
@@ -418,8 +419,10 @@ export const buttonsMessageSchema: JSONSchema7 = {
           displayText: { type: 'string' },
           id: { type: 'string' },
           url: { type: 'string' },
+          copyCode: { type: 'string' },
           phoneNumber: { type: 'string' },
           currency: { type: 'string' },
+          amount: { type: 'number', minimum: 0.01 },
           name: { type: 'string' },
           keyType: { type: 'string', enum: ['phone', 'email', 'cpf', 'cnpj', 'random'] },
           key: { type: 'string' },
@@ -445,5 +448,5 @@ export const buttonsMessageSchema: JSONSchema7 = {
       },
     },
   },
-  required: ['number'],
+  required: ['number', 'buttons'],
 };

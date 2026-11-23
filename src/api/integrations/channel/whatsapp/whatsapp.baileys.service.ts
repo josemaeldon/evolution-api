@@ -92,6 +92,7 @@ import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-r
 import axios from 'axios';
 import makeWASocket, {
   AnyMessageContent,
+  BinaryNode,
   BufferedEventData,
   BufferJSON,
   CacheStore,
@@ -2156,14 +2157,20 @@ export class BaileysStartupService extends ChannelStartupService {
     if (messageId) option.messageId = messageId;
 
     if (message['viewOnceMessage']) {
+      const interactiveMessage = message.viewOnceMessage.message?.interactiveMessage;
+      const isPix = interactiveMessage?.nativeFlowMessage?.buttons?.some((button) => button.name === 'payment_info');
       const m = generateWAMessageFromContent(sender, message, {
         timestamp: new Date(),
         userJid: this.instance.wuid,
         messageId,
         quoted,
+        ephemeralExpiration,
       });
-      const id = await this.client.relayMessage(sender, message, { messageId });
-      m.key = { id: id, remoteJid: sender, participant: isPnUser(sender) ? sender : undefined, fromMe: true };
+      const id = await this.client.relayMessage(sender, m.message, {
+        messageId: m.key.id,
+        additionalNodes: interactiveMessage ? this.interactiveRelayNodes(sender, isPix) : undefined,
+      });
+      m.key = { id, remoteJid: sender, participant: isPnUser(sender) ? sender : undefined, fromMe: true };
       for (const [key, value] of Object.entries(m)) {
         if (!value || (isArray(value) && value.length) === 0) {
           delete m[key];
@@ -2284,6 +2291,30 @@ export class BaileysStartupService extends ChannelStartupService {
       message as unknown as AnyMessageContent,
       option as unknown as MiscMessageGenerationOptions,
     );
+  }
+
+  private interactiveRelayNodes(jid: string, isPix: boolean): BinaryNode[] {
+    const attrs = {
+      actual_actors: '2',
+      host_storage: '2',
+      privacy_mode_ts: (Math.floor(Date.now() / 1000) - 77980457).toString(),
+    };
+    const biz: BinaryNode = isPix
+      ? { tag: 'biz', attrs: { ...attrs, native_flow_name: 'payment_info' } }
+      : {
+          tag: 'biz',
+          attrs,
+          content: [
+            {
+              tag: 'interactive',
+              attrs: { type: 'native_flow', v: '1' },
+              content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
+            },
+            { tag: 'quality_control', attrs: { source_type: 'third_party' } },
+          ],
+        };
+
+    return isJidGroup(jid) ? [biz] : [{ tag: 'bot', attrs: { biz_bot: '1' } }, biz];
   }
 
   private async sendMessageWithTyping<T = proto.IMessage>(
@@ -3257,6 +3288,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
   private toJSONString(button: Button): string {
     const toString = (obj: any) => JSON.stringify(obj);
+    const amount = { value: Math.round((button.amount ?? 0) * 100), offset: 100 };
 
     const json = {
       call: () => toString({ display_text: button.displayText, phone_number: button.phoneNumber }),
@@ -3265,17 +3297,15 @@ export class BaileysStartupService extends ChannelStartupService {
       url: () => toString({ display_text: button.displayText, url: button.url, merchant_url: button.url }),
       pix: () =>
         toString({
-          currency: button.currency,
-          total_amount: { value: 0, offset: 100 },
+          currency: button.currency ?? 'BRL',
+          total_amount: amount,
           reference_id: this.generateRandomId(),
           type: 'physical-goods',
           order: {
             status: 'pending',
-            subtotal: { value: 0, offset: 100 },
+            subtotal: amount,
             order_type: 'ORDER',
-            items: [
-              { name: '', amount: { value: 0, offset: 100 }, quantity: 0, sale_amount: { value: 0, offset: 100 } },
-            ],
+            items: [{ name: button.name, amount, quantity: 1, sale_amount: amount }],
           },
           payment_settings: [
             {
@@ -3311,8 +3341,24 @@ export class BaileysStartupService extends ChannelStartupService {
   ]);
 
   public async buttonMessage(data: SendButtonsDto) {
-    if (data.buttons.length === 0) {
-      throw new BadRequestException('At least one button is required');
+    if (!data.buttons?.length) {
+      throw new BadRequestException('Informe pelo menos um botão');
+    }
+
+    const requiredFields: Record<TypeButton, (keyof Button)[]> = {
+      reply: ['displayText', 'id'],
+      copy: ['displayText', 'copyCode'],
+      url: ['displayText', 'url'],
+      call: ['displayText', 'phoneNumber'],
+      pix: ['name', 'keyType', 'key'],
+    };
+    for (const button of data.buttons) {
+      if (!requiredFields[button.type]) {
+        throw new BadRequestException('Tipo de botão inválido');
+      }
+      if (requiredFields[button.type].some((field) => !button[field])) {
+        throw new BadRequestException(`Dados incompletos para o botão ${button.type}`);
+      }
     }
 
     const hasReplyButtons = data.buttons.some((btn) => btn.type === 'reply');
@@ -3342,9 +3388,12 @@ export class BaileysStartupService extends ChannelStartupService {
         viewOnceMessage: {
           message: {
             interactiveMessage: {
+              body: { text: [data.title || data.buttons[0].name, data.description].filter(Boolean).join('\n\n') },
+              footer: data.footer ? { text: data.footer } : undefined,
               nativeFlowMessage: {
                 buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
-                messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
+                messageParamsJson: '{}',
+                messageVersion: 1,
               },
             },
           },
@@ -3397,6 +3446,7 @@ export class BaileysStartupService extends ChannelStartupService {
             nativeFlowMessage: {
               buttons: buttons,
               messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
+              messageVersion: 1,
             },
           },
         },
@@ -3434,26 +3484,44 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async listMessage(data: SendListDto) {
-    return await this.sendMessageWithTyping(
-      data.number,
-      {
-        listMessage: {
-          title: data.title,
-          description: data.description,
-          buttonText: data?.buttonText,
-          footerText: data?.footerText,
-          sections: data.sections,
-          listType: 2,
+    const message: proto.IMessage = {
+      viewOnceMessage: {
+        message: {
+          interactiveMessage: {
+            body: { text: [data.title, data.description].filter(Boolean).join('\n\n') },
+            footer: data.footerText ? { text: data.footerText } : undefined,
+            nativeFlowMessage: {
+              buttons: [
+                {
+                  name: 'single_select',
+                  buttonParamsJson: JSON.stringify({
+                    title: data.buttonText,
+                    sections: data.sections.map((section) => ({
+                      title: section.title,
+                      rows: section.rows.map((row) => ({
+                        id: row.rowId,
+                        title: row.title,
+                        description: row.description,
+                      })),
+                    })),
+                  }),
+                },
+              ],
+              messageParamsJson: '{}',
+              messageVersion: 1,
+            },
+          },
         },
       },
-      {
-        delay: data?.delay,
-        presence: 'composing',
-        quoted: data?.quoted,
-        mentionsEveryOne: data?.mentionsEveryOne,
-        mentioned: data?.mentioned,
-      },
-    );
+    };
+
+    return await this.sendMessageWithTyping(data.number, message, {
+      delay: data?.delay,
+      presence: 'composing',
+      quoted: data?.quoted,
+      mentionsEveryOne: data?.mentionsEveryOne,
+      mentioned: data?.mentioned,
+    });
   }
 
   public async contactMessage(data: SendContactDto) {
