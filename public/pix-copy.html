@@ -11,7 +11,11 @@
       main { box-sizing: border-box; max-width: 540px; margin: 0 auto; padding: 48px 20px; }
       article { background: white; border: 1px solid #e3e9e6; border-radius: 20px; padding: 24px; box-shadow: 0 8px 32px #17211d0d; }
       h1 { font-size: 1.6rem; margin: 0 0 12px; }
+      h2 { font-size: 1.1rem; margin: 24px 0 12px; }
       p { line-height: 1.5; }
+      dl { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 12px; margin: 0 0 24px; }
+      dt { color: #52645a; }
+      dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
       #code { overflow-wrap: anywhere; background: #f5f7f6; border-radius: 12px; padding: 16px; font-size: .85rem; line-height: 1.5; user-select: all; }
       button { width: 100%; min-height: 52px; border: 0; border-radius: 12px; background: #00a884; color: white; font: inherit; font-weight: 700; cursor: pointer; }
       button:disabled { background: #9aa7a1; cursor: default; }
@@ -24,6 +28,10 @@
       <article>
         <h1>Pix Copia e Cola</h1>
         <p id="instruction">Toque no botão e cole o código na opção Pix Copia e Cola do seu banco.</p>
+        <section id="payment-details" hidden>
+          <h2>Informações do pagamento</h2>
+          <dl id="details"></dl>
+        </section>
         <p id="code"></p>
         <button id="copy" type="button" disabled>Copiar Pix</button>
         <p id="status" role="status" aria-live="polite"></p>
@@ -36,9 +44,47 @@
       const code = new URLSearchParams(location.hash.slice(1)).get('code') || '';
       const valid = code.length >= 50 && code.length <= 512 && code.startsWith('000201') && /6304[0-9A-F]{4}$/.test(code);
 
+      function readFields(payload) {
+        const fields = new Map();
+        for (let offset = 0; offset < payload.length;) {
+          const id = payload.slice(offset, offset + 2);
+          const lengthText = payload.slice(offset + 2, offset + 4);
+          if (!/^\d{2}$/.test(id) || !/^\d{2}$/.test(lengthText)) throw new Error('Campo Pix inválido');
+          const length = Number(lengthText);
+          const value = payload.slice(offset + 4, offset + 4 + length);
+          if (value.length !== length) throw new Error('Campo Pix incompleto');
+          fields.set(id, value);
+          offset += 4 + length;
+        }
+        return fields;
+      }
+
+      function addDetail(label, value) {
+        if (!value) return;
+        const name = document.createElement('dt');
+        const content = document.createElement('dd');
+        name.textContent = label;
+        content.textContent = value;
+        document.getElementById('details').append(name, content);
+      }
+
       if (valid) {
         codeElement.textContent = code;
         button.disabled = false;
+        try {
+          const fields = readFields(code);
+          const account = readFields(fields.get('26') || '');
+          const amount = fields.get('54');
+          addDetail('Recebedor', fields.get('59'));
+          addDetail('Valor', amount && fields.get('53') === '986'
+            ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(amount)) : amount);
+          addDetail('Chave Pix', account.get('01'));
+          addDetail('Cidade', fields.get('60'));
+          addDetail('Descrição', account.get('02'));
+          document.getElementById('payment-details').hidden = !document.getElementById('details').children.length;
+        } catch {
+          // Keep the copy action available for older links with a different Pix payload.
+        }
       } else {
         document.getElementById('instruction').textContent = 'Código Pix não encontrado neste link.';
         codeElement.hidden = true;
