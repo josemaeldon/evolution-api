@@ -408,7 +408,7 @@ index 0000000..62eabe0
 +  );
 +}
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..5200e38 100644
+index 6331202..8097e18 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
 @@ -1,15 +1,18 @@
@@ -439,7 +439,7 @@ index 6331202..5200e38 100644
  
  type MessagesProps = {
    textareaRef: RefObject<HTMLTextAreaElement>;
-@@ -149,6 +153,87 @@ const getMessageText = (messageObj: any): string => {
+@@ -149,6 +153,88 @@ const getMessageText = (messageObj: any): string => {
    return String(messageObj);
  };
  
@@ -465,7 +465,8 @@ index 6331202..5200e38 100644
 +          params = button;
 +        }
 +        const isPix = button.name === "payment_info";
-+        const label = isPix ? "Pagar com Pix" : params.displayText || params.title || button.reply?.title || content.buttonText;
++        const label = isPix ? "Pagar com Pix" : params.display_text || params.displayText ||
++          params.title || button.reply?.title || content.buttonText;
 +        const pixKey = isPix ? params.payment_settings?.[0]?.pix_static_code?.key : null;
 +        return (
 +          <div key={index} className="border-t border-current/15 pt-2 text-center text-sm font-medium">
@@ -527,7 +528,7 @@ index 6331202..5200e38 100644
  // Component to render different message types based on messageType
  const MessageContent = ({ message }: { message: Message }) => {
    const messageType = message.messageType as string;
-@@ -198,34 +283,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -198,34 +284,7 @@ const MessageContent = ({ message }: { message: Message }) => {
        return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
  
      case "imageMessage":
@@ -563,7 +564,7 @@ index 6331202..5200e38 100644
  
      case "videoMessage":
        // Use base64 data or mediaUrl for videos
-@@ -287,6 +345,12 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -287,6 +346,12 @@ const MessageContent = ({ message }: { message: Message }) => {
      case "stickerMessage":
        return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
  
@@ -576,7 +577,7 @@ index 6331202..5200e38 100644
      default:
        // Fallback for unknown message types
        return (
-@@ -417,6 +481,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -417,6 +482,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      instanceName: instance?.name,
    });
  
@@ -599,7 +600,7 @@ index 6331202..5200e38 100644
    const { data: messages, isSuccess } = useFindMessages({
      remoteJid,
      instanceName: instance?.name,
-@@ -613,19 +693,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -613,19 +694,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
@@ -646,7 +647,7 @@ index 6331202..5200e38 100644
            <div className="min-w-0 flex-1">
              <h3 className="truncate font-semibold">{headerName}</h3>
              <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
-@@ -653,6 +752,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -653,6 +753,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
            <div className="flex items-center gap-2 px-2 py-1.5">
              <div className="flex flex-shrink-0 items-center">
                {instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}

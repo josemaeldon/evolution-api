@@ -2157,8 +2157,8 @@ export class BaileysStartupService extends ChannelStartupService {
     // NOTE: NÃO DEVEMOS GERAR O messageId AQUI, SOMENTE SE VIER INFORMADO POR PARAMETRO. A GERAÇÃO ANTERIOR IMPEDE O WZAP DE IDENTIFICAR A SOURCE.
     if (messageId) option.messageId = messageId;
 
-    if (message['viewOnceMessage']) {
-      const interactiveMessage = message.viewOnceMessage.message?.interactiveMessage;
+    if (message['viewOnceMessage'] || message['interactiveMessage']) {
+      const interactiveMessage = message.interactiveMessage ?? message.viewOnceMessage?.message?.interactiveMessage;
       const isPix = interactiveMessage?.nativeFlowMessage?.buttons?.some((button) => button.name === 'payment_info');
       const m = generateWAMessageFromContent(sender, message, {
         timestamp: new Date(),
@@ -3386,17 +3386,13 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       const message: proto.IMessage = {
-        viewOnceMessage: {
-          message: {
-            interactiveMessage: {
-              body: { text: [data.title || data.buttons[0].name, data.description].filter(Boolean).join('\n\n') },
-              footer: data.footer ? { text: data.footer } : undefined,
-              nativeFlowMessage: {
-                buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
-                messageParamsJson: '{}',
-                messageVersion: 1,
-              },
-            },
+        interactiveMessage: {
+          body: { text: [data.title || data.buttons[0].name, data.description].filter(Boolean).join('\n\n') },
+          footer: data.footer ? { text: data.footer } : undefined,
+          nativeFlowMessage: {
+            buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
+            messageParamsJson: '{}',
+            messageVersion: 1,
           },
         },
       };
@@ -3421,35 +3417,31 @@ export class BaileysStartupService extends ChannelStartupService {
     });
 
     const message: proto.IMessage = {
-      viewOnceMessage: {
-        message: {
-          interactiveMessage: {
-            body: {
-              text: (() => {
-                let t = '*' + data.title + '*';
-                if (data?.description) {
-                  t += '\n\n';
-                  t += data.description;
-                  t += '\n';
-                }
-                return t;
-              })(),
-            },
-            footer: { text: data?.footer },
-            header: (() => {
-              if (generate?.message?.imageMessage) {
-                return {
-                  hasMediaAttachment: !!generate.message.imageMessage,
-                  imageMessage: generate.message.imageMessage,
-                };
-              }
-            })(),
-            nativeFlowMessage: {
-              buttons: buttons,
-              messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
-              messageVersion: 1,
-            },
-          },
+      interactiveMessage: {
+        body: {
+          text: (() => {
+            let t = '*' + data.title + '*';
+            if (data?.description) {
+              t += '\n\n';
+              t += data.description;
+              t += '\n';
+            }
+            return t;
+          })(),
+        },
+        footer: { text: data?.footer },
+        header: (() => {
+          if (generate?.message?.imageMessage) {
+            return {
+              hasMediaAttachment: !!generate.message.imageMessage,
+              imageMessage: generate.message.imageMessage,
+            };
+          }
+        })(),
+        nativeFlowMessage: {
+          buttons: buttons,
+          messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
+          messageVersion: 1,
         },
       },
     };
