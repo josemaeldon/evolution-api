@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { ChatAudioPlayer } from "@/components/chat-audio-player";
 import { api } from "@/lib/queries/api";
 import { Message } from "@/types/evolution.types";
 
@@ -40,7 +41,7 @@ export function ChatAudioMessage({ message, instanceName, token }: ChatAudioMess
 
   const source = storedSource || (data?.base64 ? `data:${data.mimetype || audio?.audioMessage?.mimetype || "audio/ogg"};base64,${data.base64}` : undefined);
 
-  if (source) return <audio controls src={source} className="w-full max-w-xs" preload="metadata" />;
+  if (source) return <ChatAudioPlayer src={source} seconds={audio?.audioMessage?.seconds} />;
 
   return (
     <div className="rounded bg-muted p-4 max-w-xs text-center text-sm text-muted-foreground">
