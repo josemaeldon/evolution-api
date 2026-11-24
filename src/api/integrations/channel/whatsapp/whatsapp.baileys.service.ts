@@ -2305,13 +2305,20 @@ export class BaileysStartupService extends ChannelStartupService {
       ...(includeBotNode ? [{ tag: 'bot', attrs: { biz_bot: '1' } } as BinaryNode] : []),
       {
         tag: 'biz',
-        attrs: {},
+        attrs: includeBotNode
+          ? {
+              actual_actors: '2',
+              host_storage: '2',
+              privacy_mode_ts: (Math.floor(Date.now() / 1000) - 77980457).toString(),
+            }
+          : {},
         content: [
           {
             tag: 'interactive',
             attrs: { type: 'native_flow', v: '1' },
             content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
           },
+          ...(includeBotNode ? [{ tag: 'quality_control', attrs: { source_type: 'third_party' } } as BinaryNode] : []),
         ],
       },
     ];

@@ -390,10 +390,10 @@ index 3888449..18de278 100644
  }
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..80d9e80
+index 0000000..cd4b54c
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,352 @@
 +import { useQueryClient } from "@tanstack/react-query";
 +import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
@@ -547,16 +547,29 @@ index 0000000..80d9e80
 +    try {
 +      setIsSending(true);
 +      const headers = { apikey: instance.token };
++      let pixButtonSent = true;
 +      if (kind === "pix") {
 +        await api.post(`/message/sendText/${instance.name}`, { number: remoteJid, text: pixSummary }, { headers });
 +        await api.post(`/message/sendText/${instance.name}`, { number: remoteJid, text: pixCode }, { headers });
++        try {
++          await api.post(`/message/sendButtons/${instance.name}`, {
++            number: remoteJid,
++            title: "Pix Copia e Cola",
++            description: "Toque no botão para copiar o código Pix completo.",
++            buttons: [{ type: "copy", displayText: "Copiar Pix", copyCode: pixCode, id: uuid() }],
++          }, { headers });
++        } catch (buttonError) {
++          console.error("Error sending Pix copy button:", buttonError);
++          pixButtonSent = false;
++        }
 +      } else {
 +        await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, { headers });
 +      }
 +      setKind(null);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
-+      toast.success(kind === "pix" ? "Pix Copia e Cola enviado" : "Mensagem enviada");
++      if (kind === "pix" && !pixButtonSent) toast.warn("Pix enviado; o botão de copiar não pôde ser enviado");
++      else toast.success(kind === "pix" ? "Pix Copia e Cola enviado" : "Mensagem enviada");
 +    } catch (error) {
 +      console.error("Error sending interactive message:", error);
 +      toast.error("Não foi possível enviar a mensagem");
@@ -593,7 +606,7 @@ index 0000000..80d9e80
 +          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar Pix Copia e Cola" : "Mensagem com lista"}</DialogTitle>
 +          <DialogDescription>
 +            Envie para {remoteJid.split("@")[0]}.
-+            {kind === "pix" && " O resumo e o código serão enviados em mensagens de texto. O contato poderá copiar a mensagem do código inteira."}
++            {kind === "pix" && " O resumo, o código e o botão de copiar serão enviados. O contato também poderá copiar a mensagem do código inteira."}
 +          </DialogDescription>
 +
 +          <div className="space-y-4">
