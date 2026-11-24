@@ -1,0 +1,103 @@
+diff --git a/src/lib/queries/chat/findChat.ts b/src/lib/queries/chat/findChat.ts
+index f1fa440..df5ae54 100644
+--- a/src/lib/queries/chat/findChat.ts
++++ b/src/lib/queries/chat/findChat.ts
+@@ -15,10 +15,8 @@ export const findChat = async ({ instanceName, remoteJid }: IParams) => {
+   const response = await api.post(`/chat/findChats/${instanceName}`, {
+     where: { remoteJid },
+   });
+-  if (Array.isArray(response.data)) {
+-    return response.data[0];
+-  }
+-  return response.data;
++  const chats = Array.isArray(response.data) ? response.data : [response.data];
++  return chats.find((chat) => chat?.remoteJid === remoteJid) ?? null;
+ };
+ 
+ export const useFindChat = (props: UseQueryParams<FindChatResponse> & Partial<IParams>) => {
+diff --git a/src/lib/queries/chat/types.ts b/src/lib/queries/chat/types.ts
+index 001efc0..531364c 100644
+--- a/src/lib/queries/chat/types.ts
++++ b/src/lib/queries/chat/types.ts
+@@ -1,7 +1,7 @@
+ import { Chat, Message } from "@/types/evolution.types";
+ 
+ /* eslint-disable @typescript-eslint/no-explicit-any */
+-export type FindChatResponse = Chat;
++export type FindChatResponse = Chat | null;
+ 
+ export type FindChatsResponse = Chat[];
+ 
+diff --git a/src/lib/queries/go/proxy/fetchProxy.ts b/src/lib/queries/go/proxy/fetchProxy.ts
+index 0d59190..85828b3 100644
+--- a/src/lib/queries/go/proxy/fetchProxy.ts
++++ b/src/lib/queries/go/proxy/fetchProxy.ts
+@@ -57,7 +57,7 @@ export const useFetchProxyGo = (props: UseQueryParams<FetchProxyResponse> & Part
+       if (!id) {
+         const singleEntries = qc.getQueriesData<Instance>({ queryKey: ["instance", "fetchInstance", "go"] });
+         for (const [, data] of singleEntries) {
+-          if (data?.name === instanceName) {
++          if (data && data.name === instanceName) {
+             id = data.id;
+             break;
+           }
+diff --git a/src/pages/instance/Chat/index.tsx b/src/pages/instance/Chat/index.tsx
+index 3888449..635eb1d 100644
+--- a/src/pages/instance/Chat/index.tsx
++++ b/src/pages/instance/Chat/index.tsx
+@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avata
+ import { Button } from "@evoapi/design-system/button";
+ import { Input } from "@/components/ui/input";
+ import { ArrowLeft, MessageCircle, Search, User, Users } from "lucide-react";
+-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { useTranslation } from "react-i18next";
+ import { useNavigate, useParams } from "react-router-dom";
+ 
+@@ -67,12 +67,17 @@ function Chat() {
+ 
+       setRealtimeChats((prev) => {
+         const idx = prev.findIndex((c) => c.remoteJid === jid);
++        const incoming = data.data as Partial<ChatType> | undefined;
+         const obj: ChatType = {
++          ...incoming,
+           id: jid,
+           remoteJid: jid,
+           pushName: data?.data?.pushName || formatJid(jid),
+           profilePicUrl: data?.data?.key?.profilePictureUrl || "",
+-          ...(data?.data as Partial<ChatType>),
++          labels: incoming?.labels ?? null,
++          createdAt: incoming?.createdAt || new Date().toISOString(),
++          updatedAt: new Date().toISOString(),
++          instanceId: instance.id,
+         };
+         if (idx !== -1) {
+           const next = [...prev];
+diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
+index 6331202..e194e63 100644
+--- a/src/pages/instance/Chat/messages.tsx
++++ b/src/pages/instance/Chat/messages.tsx
+@@ -613,8 +613,8 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+     );
+   };
+ 
+-  const headerName = chat?.pushName || chat?.remoteJid?.split("@")[0];
+-  const headerSub = chat?.remoteJid?.split("@")[0];
++  const headerName = chat?.pushName || remoteJid?.split("@")[0];
++  const headerSub = remoteJid?.split("@")[0];
+ 
+   return (
+     <div className="flex h-full flex-col bg-muted/10">
+diff --git a/src/pages/instance/EmbedChatMessage/index.tsx b/src/pages/instance/EmbedChatMessage/index.tsx
+index b65d6d5..e7b30f4 100644
+--- a/src/pages/instance/EmbedChatMessage/index.tsx
++++ b/src/pages/instance/EmbedChatMessage/index.tsx
+@@ -214,7 +214,7 @@ function EmbedChatMessage() {
+ 
+   useEffect(() => {
+     if (remoteJid) {
+-      const currentChat = chats.find((chat) => chat.id === remoteJid);
++      const currentChat = chats.find((chat) => chat.remoteJid === remoteJid);
+       setSelectedChat(currentChat || null);
+     }
+   }, [remoteJid, chats]);
