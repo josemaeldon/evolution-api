@@ -390,7 +390,7 @@ index 3888449..18de278 100644
  }
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..81e07b4
+index 0000000..43c0ec0
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
 @@ -0,0 +1,340 @@
@@ -544,7 +544,7 @@ index 0000000..81e07b4
 +            title: section.title.trim(),
 +            rows: section.rows.map((row) => ({
 +              title: row.title.trim(),
-+              description: row.description.trim(),
++              ...(row.description.trim() ? { description: row.description.trim() } : {}),
 +              rowId: row.id,
 +            })),
 +          })),

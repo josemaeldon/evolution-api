@@ -364,12 +364,11 @@ export const listMessageSchema: JSONSchema7 = {
             items: {
               type: 'object',
               properties: {
-                title: { type: 'string' },
+                title: { type: 'string', minLength: 1 },
                 description: { type: 'string' },
-                rowId: { type: 'string' },
+                rowId: { type: 'string', minLength: 1 },
               },
               required: ['title', 'rowId'],
-              ...isNotEmpty('title', 'description', 'rowId'),
             },
           },
         },
