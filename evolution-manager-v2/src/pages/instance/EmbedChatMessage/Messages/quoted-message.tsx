@@ -2,6 +2,7 @@
 import { ImageIcon, VideoIcon, MicIcon, FileIcon, UserIcon, MapPinIcon } from "lucide-react";
 
 import { useEmbedColors } from "@/contexts/EmbedColorsContext";
+import { ChatMessageImage } from "@/components/chat-image-lightbox";
 
 import { Chat, Message } from "@/types/evolution.types";
 
@@ -20,13 +21,13 @@ const calculateTime = (seconds: number) => {
 const maxLength = 50; // Define the character limit
 
 // Componentes específicos para cada tipo de mensagem
-const QuotedImageMessage = ({ imageMessage }: { imageMessage: any }) => (
+const QuotedImageMessage = ({ message }: { message: Message }) => (
   <div className="flex flex-col gap-2">
     <div className="flex items-center gap-2">
-      <img src={imageMessage.mediaUrl} alt="Quoted message" width={100} height={100} />
+      <ChatMessageImage message={message} style={{ width: 100, height: 100, objectFit: "contain" }} />
       <ImageIcon className="mr-2 h-4 w-4 text-muted-foreground" />
     </div>
-    <span className="inline-block max-w-40 overflow-hidden overflow-ellipsis whitespace-nowrap text-sm text-muted-foreground">{imageMessage.caption}</span>
+    <span className="inline-block max-w-40 overflow-hidden overflow-ellipsis whitespace-nowrap text-sm text-muted-foreground">{message.message.imageMessage?.caption}</span>
   </div>
 );
 
@@ -49,7 +50,7 @@ const QuotedAudioMessage = ({ audioMessage }: { audioMessage: any }) => (
   </div>
 );
 
-const QuotedStickerMessage = ({ stickerMessage }: { stickerMessage: any }) => <img src={stickerMessage.mediaUrl} alt="Sticker" width={100} height={100} />;
+const QuotedStickerMessage = ({ message }: { message: Message }) => <ChatMessageImage message={message} style={{ width: 100, height: 100, objectFit: "contain" }} />;
 
 const QuotedDocumentMessage = ({ documentMessage }: { documentMessage: any }) => (
   <div className="flex flex-col gap-2">
@@ -102,14 +103,7 @@ const QuotedMessage = ({ message, quotedMessage, chat, onQuoteClick }: { message
 
   const renderQuotedMessage = () => {
     if (quotedMessage.messageType === "imageMessage" && quotedMessage.message.imageMessage) {
-      return (
-        <QuotedImageMessage
-          imageMessage={{
-            caption: quotedMessage.message.imageMessage.caption,
-            mediaUrl,
-          }}
-        />
-      );
+      return <QuotedImageMessage message={quotedMessage} />;
     } else if (quotedMessage.messageType === "videoMessage" && quotedMessage.message.videoMessage) {
       return (
         <QuotedVideoMessage
@@ -120,7 +114,7 @@ const QuotedMessage = ({ message, quotedMessage, chat, onQuoteClick }: { message
         />
       );
     } else if (quotedMessage.messageType === "stickerMessage" && quotedMessage.message.stickerMessage) {
-      return <QuotedStickerMessage stickerMessage={quotedMessage.message} />;
+      return <QuotedStickerMessage message={quotedMessage} />;
     } else if (quotedMessage.messageType === "audioMessage" && quotedMessage.message.audioMessage) {
       return (
         <QuotedAudioMessage

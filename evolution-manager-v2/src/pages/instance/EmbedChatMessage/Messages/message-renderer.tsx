@@ -124,11 +124,10 @@ export function MessageRenderer({ message, fromMe }: MessageRendererProps) {
 
     case "stickerMessage":
       return (
-        <img
-          src={message.message.mediaUrl}
-          alt="Sticker"
-          width="100px"
+        <ChatMessageImage
+          message={message}
           style={{
+            maxWidth: "100px",
             maxHeight: "100px",
             objectFit: "contain",
           }}

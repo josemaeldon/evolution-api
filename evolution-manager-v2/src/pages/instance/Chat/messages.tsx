@@ -276,7 +276,7 @@ const MessageContent = ({ message }: { message: Message }) => {
       );
 
     case "stickerMessage":
-      return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
+      return <ChatMessageImage message={message} className="max-w-32 max-h-32 object-contain" />;
 
     default:
       // Fallback for unknown message types

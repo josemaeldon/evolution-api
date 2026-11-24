@@ -6,12 +6,12 @@ import { getMessageImageSrc } from "@/lib/chat-message-image";
 import { Message } from "@/types/evolution.types";
 
 type GalleryImage = { id: string; src: string };
-type GalleryContext = { open: (id: string) => void };
+type GalleryContext = { open: (image: GalleryImage) => void };
 
 const ImageGalleryContext = createContext<GalleryContext | null>(null);
 
 export function ChatImageGallery({ messages, children }: { messages: Message[]; children: ReactNode }) {
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<GalleryImage | null>(null);
   const images = useMemo<GalleryImage[]>(
     () =>
       messages.flatMap((message) => {
@@ -20,21 +20,21 @@ export function ChatImageGallery({ messages, children }: { messages: Message[]; 
       }),
     [messages],
   );
-  const activeIndex = images.findIndex((image) => image.id === activeId);
-  const activeImage = images[activeIndex];
+  const activeIndex = images.findIndex((image) => image.id === selectedImage?.id);
+  const activeImage = images[activeIndex] || selectedImage;
 
   const move = (step: number) => {
     if (activeIndex < 0) return;
-    setActiveId(images[(activeIndex + step + images.length) % images.length].id);
+    setSelectedImage(images[(activeIndex + step + images.length) % images.length]);
   };
 
   return (
-    <ImageGalleryContext.Provider value={{ open: setActiveId }}>
+    <ImageGalleryContext.Provider value={{ open: setSelectedImage }}>
       {children}
       <Dialog
         open={!!activeImage}
         onOpenChange={(open) => {
-          if (!open) setActiveId(null);
+          if (!open) setSelectedImage(null);
         }}>
         <DialogContent
           className="flex h-[90vh] max-w-[95vw] items-center justify-center border-0 bg-black p-4 text-white sm:max-w-[95vw]"
@@ -48,11 +48,9 @@ export function ChatImageGallery({ messages, children }: { messages: Message[]; 
               move(1);
             }
           }}>
-          <DialogTitle className="sr-only">
-            Imagem {activeIndex + 1} de {images.length}
-          </DialogTitle>
-          {activeImage && <img src={activeImage.src} alt={`Imagem ${activeIndex + 1} de ${images.length}`} className="max-h-full max-w-full object-contain" />}
-          {images.length > 1 && (
+          <DialogTitle className="sr-only">Imagem da conversa</DialogTitle>
+          {activeImage && <img src={activeImage.src} alt={activeIndex < 0 ? "Imagem citada" : `Imagem ${activeIndex + 1} de ${images.length}`} className="max-h-full max-w-full object-contain" />}
+          {images.length > 1 && activeIndex >= 0 && (
             <>
               <button type="button" aria-label="Imagem anterior" onClick={() => move(-1)} className="absolute left-2 rounded-full bg-black/60 p-2 text-white hover:bg-black/80">
                 <ChevronLeft />
@@ -79,7 +77,10 @@ export function ChatMessageImage({ message, className, style }: { message: Messa
   return (
     <button
       type="button"
-      onClick={() => gallery?.open(message.key.id)}
+      onClick={(event) => {
+        event.stopPropagation();
+        gallery?.open({ id: message.key.id, src });
+      }}
       aria-label="Abrir imagem"
       className="cursor-zoom-in rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
       <img src={src} alt="Imagem da conversa" className={className} style={style} loading="lazy" />
