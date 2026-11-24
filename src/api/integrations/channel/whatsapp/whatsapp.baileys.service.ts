@@ -2159,6 +2159,9 @@ export class BaileysStartupService extends ChannelStartupService {
 
     if (message['viewOnceMessage'] || message['interactiveMessage'] || message['listMessage']) {
       const interactiveMessage = message.interactiveMessage ?? message.viewOnceMessage?.message?.interactiveMessage;
+      const hasCopyButton = interactiveMessage?.nativeFlowMessage?.buttons?.some(
+        (button) => button.name === 'cta_copy',
+      );
       const m = generateWAMessageFromContent(sender, message, {
         timestamp: new Date(),
         userJid: this.instance.wuid,
@@ -2171,7 +2174,7 @@ export class BaileysStartupService extends ChannelStartupService {
         additionalNodes: message.listMessage
           ? this.listRelayNodes()
           : interactiveMessage
-            ? this.interactiveRelayNodes()
+            ? this.interactiveRelayNodes(hasCopyButton && !isJidGroup(sender))
             : undefined,
       });
       m.key = { id, remoteJid: sender, participant: isPnUser(sender) ? sender : undefined, fromMe: true };
@@ -2297,8 +2300,9 @@ export class BaileysStartupService extends ChannelStartupService {
     );
   }
 
-  private interactiveRelayNodes(): BinaryNode[] {
+  private interactiveRelayNodes(includeBotNode = false): BinaryNode[] {
     return [
+      ...(includeBotNode ? [{ tag: 'bot', attrs: { biz_bot: '1' } } as BinaryNode] : []),
       {
         tag: 'biz',
         attrs: {},
@@ -3370,6 +3374,7 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     const hasReplyButtons = data.buttons.some((btn) => btn.type === 'reply');
+    const hasCopyButton = data.buttons.some((btn) => btn.type === 'copy');
 
     const hasPixButton = data.buttons.some((btn) => btn.type === 'pix');
 
@@ -3446,7 +3451,8 @@ export class BaileysStartupService extends ChannelStartupService {
         })(),
         nativeFlowMessage: {
           buttons: buttons,
-          messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
+          messageParamsJson: hasCopyButton ? '{}' : JSON.stringify({ from: 'api', templateId: v4() }),
+          messageVersion: hasCopyButton ? 1 : undefined,
         },
       },
     };
