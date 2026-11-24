@@ -378,25 +378,46 @@ export class TypebotService extends BaseChatbotService<TypebotModel, any> {
     // Process input choices
     if (input) {
       if (input.type === 'choice input') {
-        let formattedText = '';
+        const choices = (input.items || [])
+          .map((item: { content?: string }) => item.content?.trim())
+          .filter((content: string | undefined): content is string => !!content);
 
-        const items = input.items;
-
-        for (const item of items) {
-          formattedText += `▶️ ${item.content}\n`;
+        if (choices.length) {
+          try {
+            if (choices.length <= 3) {
+              await instance.buttonMessage({
+                number: session.remoteJid,
+                title: 'Escolha uma opção',
+                delay: settings?.delayMessage || 1000,
+                buttons: choices.map((content: string) => ({ type: 'reply', displayText: content, id: content })),
+              });
+              sendTelemetry('/message/sendButtons');
+            } else {
+              await instance.listMessage({
+                number: session.remoteJid,
+                title: 'Escolha uma opção',
+                buttonText: 'Ver opções',
+                sections: [
+                  {
+                    title: 'Opções',
+                    rows: choices.map((content: string) => ({ title: content, description: '', rowId: content })),
+                  },
+                ],
+              });
+              sendTelemetry('/message/sendList');
+            }
+          } catch (error) {
+            this.logger.warn(`Interactive Typebot choices unavailable: ${error}`);
+            await this.sendMessageWhatsApp(
+              instance,
+              session.remoteJid,
+              choices.map((content: string) => `▶️ ${content}`).join('\n'),
+              settings,
+              true,
+            );
+            sendTelemetry('/message/sendText');
+          }
         }
-
-        formattedText = formattedText.replace(/\n$/, '');
-
-        if (formattedText.includes('[list]')) {
-          await this.processListMessage(instance, formattedText, session.remoteJid);
-        } else if (formattedText.includes('[buttons]')) {
-          await this.processButtonMessage(instance, formattedText, session.remoteJid);
-        } else {
-          await this.sendMessageWhatsApp(instance, session.remoteJid, formattedText, settings, true);
-        }
-
-        sendTelemetry('/message/sendText');
       }
 
       await prismaRepository.integrationSession.update({

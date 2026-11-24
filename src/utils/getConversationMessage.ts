@@ -1,5 +1,17 @@
 import { configService, S3 } from '@config/env.config';
 
+const getInteractiveReply = (msg: any): string | undefined => {
+  const response = msg?.message?.interactiveResponseMessage?.nativeFlowResponseMessage;
+  if (!response?.paramsJson) return undefined;
+
+  try {
+    const params = JSON.parse(response.paramsJson);
+    return params.id || params.display_text || params.title;
+  } catch {
+    return undefined;
+  }
+};
+
 const getTypeMessage = (msg: any) => {
   let mediaId: string;
 
@@ -25,6 +37,7 @@ const getTypeMessage = (msg: any) => {
     responseRowId: msg?.message?.listResponseMessage?.singleSelectReply?.selectedRowId,
     templateButtonReplyMessage:
       msg?.message?.templateButtonReplyMessage?.selectedId || msg?.message?.buttonsResponseMessage?.selectedButtonId,
+    interactiveResponseMessage: getInteractiveReply(msg),
     // Medias
     audioMessage: msg?.message?.speechToText
       ? msg?.message?.speechToText
