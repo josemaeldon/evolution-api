@@ -27,11 +27,16 @@ import { Websocket } from "@/pages/instance/Websocket";
 import LicenseCallback from "@/pages/Login/LicenseCallback";
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
+import PaymentPix from "@/pages/PaymentPix";
 
 const router = createBrowserRouter([
   {
     path: "/",
     element: <Home />,
+  },
+  {
+    path: "/manager/payment/:token",
+    element: <PaymentPix />,
   },
   {
     path: "/manager/login",

@@ -15,6 +15,7 @@ type Props = {
   token: string;
   integration: string;
   remoteJid: string;
+  recipientName?: string;
 };
 
 const routes: Record<Kind, string> = {
@@ -35,7 +36,7 @@ const labels: Record<Kind, string> = {
   flow: "Formulário",
 };
 
-export function ChatInteractiveComposer({ instanceName, token, integration, remoteJid }: Props) {
+export function ChatInteractiveComposer({ instanceName, token, integration, remoteJid, recipientName }: Props) {
   const business = integration === "WHATSAPP-BUSINESS";
   const supported = business || integration === "WHATSAPP-BAILEYS";
   const group = remoteJid.endsWith("@g.us");
@@ -51,6 +52,10 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   const [screenId, setScreenId] = useState("");
   const [copyCode, setCopyCode] = useState("");
   const [paymentUrl, setPaymentUrl] = useState("");
+  const [pixKey, setPixKey] = useState("");
+  const [merchantName, setMerchantName] = useState(recipientName || "");
+  const [merchantCity, setMerchantCity] = useState("");
+  const [amount, setAmount] = useState("");
   const [selectableCount, setSelectableCount] = useState(1);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -68,7 +73,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   const valid = kind === "flow"
     ? Boolean(flowId.trim() && body.trim() && cta.trim())
     : kind === "pix"
-      ? Boolean(title.trim() && copyCode.trim() && validPaymentUrl)
+      ? Boolean(title.trim() && pixKey.trim() && merchantName.trim() && merchantCity.trim() && /^\d{1,6}[.,]\d{2}$/.test(amount.trim()) && Number(amount.replace(",", ".")) > 0)
       : kind === "copy"
         ? Boolean(title.trim() && copyCode.trim() && (!paymentUrl.trim() || validPaymentUrl))
     : kind === "poll"
@@ -82,16 +87,39 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
     setSending(true);
     setError("");
     const number = remoteJid.split("@")[0];
+    let charge: { code: string; paymentUrl: string; amount: string } | null = null;
+    try {
+      if (kind === "pix") {
+        const response = await api.post(`/pix/create/${instanceName}`, {
+          key: pixKey.trim(),
+          amount: amount.trim(),
+          merchantName: merchantName.trim(),
+          merchantCity: merchantCity.trim(),
+          description: body.trim(),
+        }, { headers: { apikey: token } });
+        charge = response.data;
+        if (!charge?.code || !charge.paymentUrl || !charge.amount) throw new Error("Não foi possível gerar a cobrança Pix.");
+      }
     const payload = kind === "buttons"
       ? { number, title: title.trim(), buttons: entries.map((displayText, index) => ({ type: "reply", displayText, id: `reply_${index + 1}` })) }
-      : kind === "copy" || kind === "pix"
+      : kind === "pix"
+        ? {
+          number,
+          title: title.trim(),
+          description: [body.trim(), `Valor: R$ ${charge?.amount.replace(".", ",")}`].filter(Boolean).join("\n"),
+          buttons: [
+            { type: "copy", displayText: "Copiar código Pix", copyCode: charge?.code },
+            { type: "url", displayText: "Ver pagamento", url: charge?.paymentUrl },
+          ],
+        }
+      : kind === "copy"
         ? {
           number,
           title: title.trim(),
           ...(body.trim() && { description: body.trim() }),
           buttons: [
-            { type: "copy", displayText: kind === "pix" ? "Copiar código Pix" : "Copiar código", copyCode },
-            ...(paymentUrl.trim() ? [{ type: "url", displayText: kind === "pix" ? "Ver pagamento" : "Abrir página", url: paymentUrl.trim() }] : []),
+            { type: "copy", displayText: "Copiar código", copyCode },
+            ...(paymentUrl.trim() ? [{ type: "url", displayText: "Abrir página", url: paymentUrl.trim() }] : []),
           ],
         }
       : kind === "list"
@@ -99,7 +127,6 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
         : kind === "poll"
           ? { number, name: title.trim(), selectableCount, values: entries }
           : { number, flowId: flowId.trim(), body: body.trim(), cta: cta.trim(), ...(title.trim() && { header: title.trim() }), ...(screenId.trim() && { screenId: screenId.trim() }) };
-    try {
       await api.post(`/message/${routes[kind]}/${instanceName}`, payload, { headers: { apikey: token } });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }),
@@ -114,8 +141,10 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
       setScreenId("");
       setCopyCode("");
       setPaymentUrl("");
+      setPixKey("");
+      setAmount("");
     } catch (cause: any) {
-      setError(cause?.response?.data?.message || cause?.message || "Não foi possível enviar a mensagem.");
+      setError(cause?.response?.data?.response?.message || cause?.response?.data?.message || cause?.message || "Não foi possível enviar a mensagem.");
     } finally {
       setSending(false);
     }
@@ -150,9 +179,16 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
           </>}
           {(kind === "list" || kind === "flow" || kind === "copy" || kind === "pix") && <Textarea aria-label="Texto da mensagem" placeholder={kind === "copy" || kind === "pix" ? "Descrição da cobrança (opcional)" : "Texto da mensagem"} maxLength={1024} value={body} onChange={(event) => setBody(event.target.value)} />}
           {(kind === "list" || kind === "flow") && <Input aria-label="Texto do botão" placeholder="Texto do botão" maxLength={20} value={cta} onChange={(event) => setCta(event.target.value)} />}
-          {(kind === "copy" || kind === "pix") && <>
-            <Textarea aria-label={kind === "pix" ? "Código Pix copia e cola" : "Código para copiar"} placeholder={kind === "pix" ? "Código Pix copia e cola" : "Código para copiar"} value={copyCode} onChange={(event) => setCopyCode(event.target.value)} />
-            <Input type="url" aria-label="URL da página de pagamento" placeholder={kind === "pix" ? "https://... página de pagamento" : "https://... página opcional"} value={paymentUrl} onChange={(event) => setPaymentUrl(event.target.value)} />
+          {kind === "pix" && <>
+            <Input aria-label="Chave Pix do recebedor" placeholder="Chave Pix do recebedor" maxLength={77} value={pixKey} onChange={(event) => setPixKey(event.target.value)} />
+            <Input aria-label="Nome do recebedor" placeholder="Nome do recebedor" maxLength={25} value={merchantName} onChange={(event) => setMerchantName(event.target.value)} />
+            <Input aria-label="Cidade do recebedor" placeholder="Cidade do recebedor" maxLength={15} value={merchantCity} onChange={(event) => setMerchantCity(event.target.value)} />
+            <Input aria-label="Valor em reais" placeholder="Valor em reais (ex.: 25,00)" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
+            <p className="text-xs text-muted-foreground">O código Pix e a página de pagamento serão gerados automaticamente para esse valor. A confirmação do pagamento deve ser feita no banco.</p>
+          </>}
+          {kind === "copy" && <>
+            <Textarea aria-label="Código para copiar" placeholder="Código para copiar" value={copyCode} onChange={(event) => setCopyCode(event.target.value)} />
+            <Input type="url" aria-label="URL da página" placeholder="https://... página opcional" value={paymentUrl} onChange={(event) => setPaymentUrl(event.target.value)} />
             {paymentUrl.trim() && !validPaymentUrl && <p className="text-xs text-destructive">Informe uma URL HTTPS válida.</p>}
             <p className="text-xs text-muted-foreground">O código será copiado exatamente como informado.</p>
           </>}
