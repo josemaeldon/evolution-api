@@ -42,7 +42,7 @@ index 0d59190..85828b3 100644
              break;
            }
 diff --git a/src/pages/instance/Chat/index.tsx b/src/pages/instance/Chat/index.tsx
-index 3888449..635eb1d 100644
+index 3888449..41097e2 100644
 --- a/src/pages/instance/Chat/index.tsx
 +++ b/src/pages/instance/Chat/index.tsx
 @@ -3,7 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avata
@@ -73,6 +73,19 @@ index 3888449..635eb1d 100644
          };
          if (idx !== -1) {
            const next = [...prev];
+@@ -113,8 +118,10 @@ function Chat() {
+ 
+   const visibleChats = useMemo(() => {
+     const isContacts = kind === "contacts";
+-    const filtered = allChats.filter((c) =>
+-      isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us"),
++    const filtered = allChats.filter(
++      (c) =>
++        c.remoteJid !== "0@s.whatsapp.net" &&
++        (isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us")),
+     );
+     if (!search.trim()) return filtered;
+     const q = search.toLowerCase();
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
 index 6331202..e194e63 100644
 --- a/src/pages/instance/Chat/messages.tsx
