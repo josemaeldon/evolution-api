@@ -110,13 +110,7 @@ export type SendMedia = {
 
 export type SendAudio = {
   number: string;
-  audioMessage: {
-    audio: string; // Base64 string
-  };
-  options?: {
-    delay?: number;
-    presence?: string;
-  };
+  audio: string; // Base64 string
 };
 
 export type IntegrationSession = {

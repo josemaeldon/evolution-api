@@ -1,8 +1,7 @@
-import { FileIcon } from "lucide-react";
-
-import { Button } from "@evoapi/design-system/button";
 import { ChatMessageImage } from "@/components/chat-image-lightbox";
 import { ChatAudioMessage } from "@/components/chat-audio-message";
+import { ChatDocumentMessage } from "@/components/chat-document-message";
+import { ChatVideoMessage } from "@/components/chat-video-message";
 
 import { Message } from "@/types/evolution.types";
 
@@ -43,26 +42,9 @@ export function MessageRenderer({ message, fromMe, instanceName, token }: Messag
       );
 
     case "videoMessage":
-      // Ensure proper data URI format for video base64
-      const videoBase64 = message.message.base64 ? (message.message.base64.startsWith("data:") ? message.message.base64 : `data:video/mp4;base64,${message.message.base64}`) : null;
-
       return (
         <div className="mb-2 flex flex-col gap-2">
-          {videoBase64 ? (
-            <video
-              src={videoBase64}
-              width="400px"
-              controls
-              style={{
-                maxHeight: "400px",
-              }}
-            />
-          ) : (
-            <div className="rounded bg-gray-100 p-4 dark:bg-gray-800">
-              <p className="text-center text-muted-foreground">Video couldn't be loaded</p>
-              <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data</p>
-            </div>
-          )}
+          <ChatVideoMessage message={message} instanceName={instanceName} token={token} />
           <MarkdownWrapper>{message.message.videoMessage?.caption}</MarkdownWrapper>
         </div>
       );
@@ -71,30 +53,12 @@ export function MessageRenderer({ message, fromMe, instanceName, token }: Messag
       return <ChatAudioMessage message={message} instanceName={instanceName} token={token} />;
 
     case "documentMessage":
-      return (
-        <Button
-          className={`-m-2 mb-2 gap-1 rounded-lg ${
-            fromMe
-              ? "bg-[#b2ece0] text-black hover:bg-[#a4ecde] dark:bg-[#082720] dark:text-white dark:hover:bg-[#071f19]"
-              : "bg-[#d2e2e2] text-black hover:bg-[#c2d2d2] dark:bg-[#0f1413] dark:text-white dark:hover:bg-[#141a18]"
-          }`}>
-          <FileIcon className="h-4 w-4" />
-          {message.message.documentMessage.fileName}
-        </Button>
-      );
+      return <ChatDocumentMessage message={message} instanceName={instanceName} token={token} />;
 
     case "documentWithCaptionMessage":
       return (
         <>
-          <Button
-            className={`-m-2 mb-2 gap-1 rounded-lg ${
-              fromMe
-                ? "bg-[#b2ece0] text-black hover:bg-[#a4ecde] dark:bg-[#082720] dark:text-white dark:hover:bg-[#071f19]"
-                : "bg-[#d2e2e2] text-black hover:bg-[#c2d2d2] dark:bg-[#0f1413] dark:text-white dark:hover:bg-[#141a18]"
-            }`}>
-            <FileIcon className="h-4 w-4" />
-            {message.message.documentWithCaptionMessage.message.documentMessage.fileName}
-          </Button>
+          <ChatDocumentMessage message={message} instanceName={instanceName} token={token} />
           <MarkdownWrapper>{message.message.documentWithCaptionMessage.message.documentMessage.caption}</MarkdownWrapper>
         </>
       );

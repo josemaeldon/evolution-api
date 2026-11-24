@@ -36,6 +36,17 @@ interface AudioControlsProps {
 
 const AudioControls: React.FC<AudioControlsProps> = ({ isSendingMessage, isRecording, audioBlob, elapsedTime, startRecording, stopRecording, clearRecording, sendAudioMessage, disabled }) => {
   const { inputIconsMainColor } = useEmbedColors();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!audioBlob) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(audioBlob);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [audioBlob]);
 
   return (
     <div className="flex items-center gap-2">
@@ -53,7 +64,7 @@ const AudioControls: React.FC<AudioControlsProps> = ({ isSendingMessage, isRecor
           <Button type="button" size="icon" variant="ghost" className="rounded-full p-2" disabled={isSendingMessage} onClick={clearRecording}>
             <TrashIcon className="h-6 w-6 text-[#b03f3f]" />
           </Button>
-          <audio controls src={URL.createObjectURL(audioBlob)} />
+          <audio controls src={previewUrl || undefined} />
         </div>
       )}
 
@@ -106,6 +117,7 @@ const InputMessage = ({ chat }: InputMessageProps) => {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Referência para o mediaRecorder
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Estado que mantém a mensagem do textarea
   const [message, setMessage] = useState("");
@@ -131,6 +143,12 @@ const InputMessage = ({ chat }: InputMessageProps) => {
     setReplyingMessage(null);
     setSelectedMedia(null);
   }, [remoteJid, setReplyingMessage, setSelectedMedia]);
+
+  useEffect(() => () => {
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    if (timerRef.current) clearInterval(timerRef.current);
+  }, []);
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value);
@@ -178,6 +196,7 @@ const InputMessage = ({ chat }: InputMessageProps) => {
           noiseSuppression: true,
         },
       });
+      streamRef.current = stream;
 
       // Verifica formatos aceitos pela Meta
       let mimeType = "";
@@ -210,6 +229,8 @@ const InputMessage = ({ chat }: InputMessageProps) => {
       };
 
       mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
         const audioBlob = new Blob(audioChunks, { type: mimeType });
         const audioFile = new File([audioBlob], `audio.${mimeType.split("/")[1]}`, {
           type: mimeType,
@@ -224,6 +245,8 @@ const InputMessage = ({ chat }: InputMessageProps) => {
         setElapsedTime((time) => time + 1);
       }, 1000);
     } catch (error) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       console.error("Erro ao iniciar gravação:", error);
       toast.error(t("chat.toast.recordingError"));
       setIsRecording(false);
@@ -359,10 +382,7 @@ const InputMessage = ({ chat }: InputMessageProps) => {
         token: embeddedInstance.token,
         data: {
           number: remoteJid,
-          audioMessage: {
-            // Instead of sending the raw blob, send the base64 string
-            audio: base64Data,
-          },
+          audio: base64Data,
         },
       };
 

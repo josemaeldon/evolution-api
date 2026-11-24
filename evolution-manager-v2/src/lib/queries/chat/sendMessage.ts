@@ -62,10 +62,7 @@ const sendAudio = async ({ instanceName, token, data }: SendAudioParams) => {
     // Always send as JSON with base64 audio
     const jsonData = {
       number: data.number,
-      audioMessage: {
-        audio: data.audioMessage.audio, // Base64 string
-      },
-      options: data.options,
+      audio: data.audio,
     };
 
     const response = await api.post(`/message/sendWhatsAppAudio/${instanceName}`, jsonData, {
@@ -104,7 +101,12 @@ export function useSendMedia() {
 }
 
 export function useSendAudio() {
-  const sendAudioMutation = useManageMutation(sendAudio);
+  const sendAudioMutation = useManageMutation(sendAudio, {
+    invalidateKeys: [
+      ["chats", "findMessages"],
+      ["chats", "findChats"],
+    ],
+  });
 
   return {
     sendAudio: sendAudioMutation,

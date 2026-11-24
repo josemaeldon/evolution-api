@@ -8,12 +8,15 @@ import { Button } from "@evoapi/design-system/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatImageGallery, ChatMessageImage } from "@/components/chat-image-lightbox";
 import { ChatAudioMessage } from "@/components/chat-audio-message";
+import { ChatDocumentMessage } from "@/components/chat-document-message";
+import { ChatVideoMessage } from "@/components/chat-video-message";
+import { ChatVoiceRecorder } from "@/components/chat-voice-recorder";
 
 import { useInstance } from "@/contexts/InstanceContext";
 
 import { useFindChat } from "@/lib/queries/chat/findChat";
 import { useFindMessages } from "@/lib/queries/chat/findMessages";
-import { useSendMessage, useSendMedia } from "@/lib/queries/chat/sendMessage";
+import { useSendMessage, useSendMedia, useSendAudio } from "@/lib/queries/chat/sendMessage";
 import { getToken, TOKEN_ID } from "@/lib/queries/token";
 
 import { Message } from "@/types/evolution.types";
@@ -210,29 +213,9 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
       );
 
     case "videoMessage":
-      // Use base64 data or mediaUrl for videos
-      const videoBase64 = message.message.base64 ? (message.message.base64.startsWith("data:") ? message.message.base64 : `data:video/mp4;base64,${message.message.base64}`) : null;
-
-      const videoSrc = videoBase64 || message.message.mediaUrl;
-
       return (
         <div className="flex flex-col gap-2">
-          {videoSrc ? (
-            <video
-              src={videoSrc}
-              controls
-              className="rounded-lg max-w-full h-auto"
-              style={{
-                maxWidth: "400px",
-                maxHeight: "400px",
-              }}
-            />
-          ) : (
-            <div className="rounded bg-muted p-4 max-w-xs">
-              <p className="text-center text-muted-foreground">Video couldn't be loaded</p>
-              <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data and mediaUrl</p>
-            </div>
-          )}
+          <ChatVideoMessage message={message} instanceName={instanceName} token={token} />
           {message.message.videoMessage?.caption && <p className="text-sm">{message.message.videoMessage.caption}</p>}
         </div>
       );
@@ -241,13 +224,11 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
       return <ChatAudioMessage message={message} instanceName={instanceName} token={token} />;
 
     case "documentMessage":
+    case "documentWithCaptionMessage":
       return (
-        <div className="flex items-center gap-2 p-3 bg-muted rounded-lg max-w-xs">
-          <div className="text-2xl">📄</div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium truncate">{message.message.documentMessage?.fileName || "Document"}</p>
-            {message.message.documentMessage?.fileLength && <p className="text-xs text-muted-foreground">{(message.message.documentMessage.fileLength / 1024 / 1024).toFixed(2)} MB</p>}
-          </div>
+        <div className="flex flex-col gap-2">
+          <ChatDocumentMessage message={message} instanceName={instanceName} token={token} />
+          {message.message.documentWithCaptionMessage?.message?.documentMessage?.caption && <p className="text-sm">{message.message.documentWithCaptionMessage.message.documentMessage.caption}</p>}
         </div>
       );
 
@@ -274,11 +255,26 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
+  const [recordingActive, setRecordingActive] = useState(false);
   const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
   const { sendText: sendTextMutation } = useSendMessage();
   const { sendMedia: sendMediaMutation } = useSendMedia();
+  const { sendAudio: sendAudioMutation } = useSendAudio();
 
   const { remoteJid } = useParams<{ remoteJid: string }>();
+
+  useEffect(() => setRecordingActive(false), [remoteJid]);
+
+  const sendRecording = async (audio: Blob) => {
+    if (!remoteJid || !instance?.name || !instance?.token) throw new Error("Instância indisponível");
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(audio);
+    });
+    await sendAudioMutation({ instanceName: instance.name, token: instance.token, data: { number: remoteJid, audio: base64 } });
+  };
 
   // Handle sending text messages
   const sendTextMessage = async () => {
@@ -614,8 +610,8 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
               </div>
             )}
             <div className="flex items-center gap-2 px-2 py-1.5">
-              <div className="flex flex-shrink-0 items-center">{instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}</div>
-              <Textarea
+              {!recordingActive && <div className="flex flex-shrink-0 items-center">{instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}</div>}
+              {!recordingActive && <Textarea
                 placeholder={t("chat.input.placeholder", { defaultValue: "Digite uma mensagem..." })}
                 name="message"
                 id="message"
@@ -627,8 +623,11 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
                 disabled={isSending}
                 style={{ height: textareaHeight }}
                 className="min-h-9 flex-1 resize-none border-none bg-transparent px-2 py-1.5 text-sm shadow-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              <Button
+              />}
+              {!messageText.trim() && !selectedMedia && (
+                <ChatVoiceRecorder key={remoteJid} disabled={isSending || !instance?.token || !remoteJid} onActiveChange={setRecordingActive} onSend={sendRecording} />
+              )}
+              {!recordingActive && (messageText.trim() || selectedMedia) && <Button
                 type="button"
                 size="icon"
                 onClick={sendMessage}
@@ -636,7 +635,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
                 className="h-9 w-9 flex-shrink-0 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-50">
                 <Send className="h-4 w-4" />
                 <span className="sr-only">{t("chat.input.send")}</span>
-              </Button>
+              </Button>}
             </div>
           </div>
         </div>
