@@ -340,6 +340,22 @@ export const pollMessageSchema: JSONSchema7 = {
   required: ['number', 'name', 'selectableCount', 'values'],
 };
 
+export const flowMessageSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    number: { ...numberDefinition },
+    flowId: { type: 'string', minLength: 1 },
+    body: { type: 'string', minLength: 1, maxLength: 1024 },
+    cta: { type: 'string', minLength: 1, maxLength: 20 },
+    header: { type: 'string', maxLength: 60 },
+    footer: { type: 'string', maxLength: 60 },
+    screenId: { type: 'string', minLength: 1 },
+  },
+  required: ['number', 'flowId', 'body', 'cta'],
+};
+
 export const listMessageSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',

@@ -6,6 +6,7 @@ import {
   SendAudioDto,
   SendButtonsDto,
   SendContactDto,
+  SendFlowDto,
   SendListDto,
   SendLocationDto,
   SendMediaDto,
@@ -190,7 +191,25 @@ export class BusinessStartupService extends ChannelStartupService {
 
   private messageInteractiveJson(received: any) {
     const message = received.messages[0];
-    let content: any = { conversation: message.interactive[message.interactive.type].title };
+    const interactive = message.interactive;
+    const reply = interactive?.[interactive.type];
+    let content: any;
+    if (interactive?.type === 'nfm_reply') {
+      let answers: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(reply?.response_json || '{}');
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) answers = parsed;
+      } catch {
+        this.logger.warn('Invalid WhatsApp Flow response JSON');
+      }
+      delete answers.flow_token;
+      const lines = Object.entries(answers).map(
+        ([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`,
+      );
+      content = { conversation: [reply?.body || 'Formulário respondido', ...lines].join('\n'), flowResponse: answers };
+    } else {
+      content = { conversation: reply?.title || reply?.text || 'Resposta interativa' };
+    }
     message.context ? (content = { ...content, contextInfo: { stanzaId: message.context.id } }) : content;
     return content;
   }
@@ -1087,9 +1106,7 @@ export class BusinessStartupService extends ChannelStartupService {
               body: {
                 text: message['listMessage']['description'],
               },
-              footer: {
-                text: message['listMessage']['footerText'],
-              },
+              ...(message['listMessage']['footerText'] && { footer: { text: message['listMessage']['footerText'] } }),
               action: {
                 button: message['listMessage']['buttonText'],
                 sections: message['listMessage']['sections'],
@@ -1105,6 +1122,35 @@ export class BusinessStartupService extends ChannelStartupService {
             }
           }
           message = { conversation: `${message['listMessage']['title']}\n` + formattedText };
+          return await this.post(content, 'messages');
+        }
+        if (message['flowMessage']) {
+          const flow = message['flowMessage'] as SendFlowDto;
+          content = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: number.replace(/\D/g, ''),
+            type: 'interactive',
+            interactive: {
+              type: 'flow',
+              ...(flow.header && { header: { type: 'text', text: flow.header } }),
+              body: { text: flow.body },
+              ...(flow.footer && { footer: { text: flow.footer } }),
+              action: {
+                name: 'flow',
+                parameters: {
+                  flow_message_version: '3',
+                  flow_id: flow.flowId,
+                  flow_cta: flow.cta,
+                  ...(flow.screenId && {
+                    flow_action: 'navigate',
+                    flow_action_payload: { screen: flow.screenId },
+                  }),
+                },
+              },
+            },
+          };
+          message = { conversation: `${flow.body}\n▶️ ${flow.cta}` };
           return await this.post(content, 'messages');
         }
         if (message['template']) {
@@ -1127,9 +1173,9 @@ export class BusinessStartupService extends ChannelStartupService {
         }
       })();
 
-      if (messageSent?.error_data || messageSent.message) {
+      if (!messageSent?.messages?.[0]?.id) {
         this.logger.error(messageSent);
-        return messageSent;
+        throw new BadRequestException(messageSent?.message || 'WhatsApp did not accept the message');
       }
 
       const messageRaw: any = {
@@ -1448,6 +1494,10 @@ export class BusinessStartupService extends ChannelStartupService {
     );
   }
 
+  public async flowMessage(data: SendFlowDto) {
+    return await this.sendMessageWithTyping(data.number, { flowMessage: data });
+  }
+
   public async locationMessage(data: SendLocationDto) {
     return await this.sendMessageWithTyping(
       data.number,
@@ -1491,7 +1541,7 @@ export class BusinessStartupService extends ChannelStartupService {
             rows: section.rows.map((row) => {
               return {
                 title: row.title,
-                description: row.description.substring(0, 72),
+                description: row.description?.substring(0, 72) || '',
                 id: row.rowId,
               };
             }),

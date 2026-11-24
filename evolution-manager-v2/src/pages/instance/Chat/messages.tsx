@@ -11,6 +11,7 @@ import { ChatAudioMessage } from "@/components/chat-audio-message";
 import { ChatDocumentMessage } from "@/components/chat-document-message";
 import { ChatVideoMessage } from "@/components/chat-video-message";
 import { ChatVoiceRecorder } from "@/components/chat-voice-recorder";
+import { ChatInteractiveComposer } from "@/components/chat-interactive-composer";
 
 import { useInstance } from "@/contexts/InstanceContext";
 
@@ -197,6 +198,9 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 
     case "extendedTextMessage":
       return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
+
+    case "interactiveMessage":
+      return <span className="whitespace-pre-wrap">{getMessageText(message.message)}</span>;
 
     case "imageMessage":
       return (
@@ -611,6 +615,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
             )}
             <div className="flex items-center gap-2 px-2 py-1.5">
               {!recordingActive && <div className="flex flex-shrink-0 items-center">{instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}</div>}
+              {!recordingActive && instance?.token && remoteJid && <ChatInteractiveComposer key={remoteJid} instanceName={instance.name} token={instance.token} integration={instance.integration} remoteJid={remoteJid} />}
               {!recordingActive && <Textarea
                 placeholder={t("chat.input.placeholder", { defaultValue: "Digite uma mensagem..." })}
                 name="message"

@@ -71,6 +71,15 @@ export class SendPollDto extends Metadata {
   messageSecret?: Uint8Array;
 }
 
+export class SendFlowDto extends Metadata {
+  flowId: string;
+  body: string;
+  cta: string;
+  header?: string;
+  footer?: string;
+  screenId?: string;
+}
+
 export type MediaType = 'image' | 'document' | 'video' | 'audio' | 'ptv';
 
 export class SendMediaDto extends Metadata {

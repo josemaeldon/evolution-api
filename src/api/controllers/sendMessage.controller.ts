@@ -3,6 +3,7 @@ import {
   SendAudioDto,
   SendButtonsDto,
   SendContactDto,
+  SendFlowDto,
   SendListDto,
   SendLocationDto,
   SendMediaDto,
@@ -14,6 +15,7 @@ import {
   SendTemplateDto,
   SendTextDto,
 } from '@api/dto/sendMessage.dto';
+import { BusinessStartupService } from '@api/integrations/channel/meta/whatsapp.business.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { BadRequestException } from '@exceptions';
 import { isBase64, isURL } from 'class-validator';
@@ -99,6 +101,14 @@ export class SendMessageController {
 
   public async sendPoll({ instanceName }: InstanceDto, data: SendPollDto) {
     return await this.waMonitor.waInstances[instanceName].pollMessage(data);
+  }
+
+  public async sendFlow({ instanceName }: InstanceDto, data: SendFlowDto) {
+    const channel = this.waMonitor.waInstances[instanceName];
+    if (!(channel instanceof BusinessStartupService)) {
+      throw new BadRequestException('WhatsApp Flows are available only for WhatsApp Business instances');
+    }
+    return await channel.flowMessage(data);
   }
 
   public async sendStatus({ instanceName }: InstanceDto, data: SendStatusDto, file?: any) {
