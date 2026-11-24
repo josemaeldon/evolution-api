@@ -1,24 +1,30 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { createContext, CSSProperties, ReactNode, useContext, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { createContext, CSSProperties, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getMessageImageSrc } from "@/lib/chat-message-image";
+import { api } from "@/lib/queries/api";
 import { Message } from "@/types/evolution.types";
 
 type GalleryImage = { id: string; src: string };
-type GalleryContext = { open: (image: GalleryImage) => void };
+type GalleryContext = { open: (image: GalleryImage) => void; register: (image: GalleryImage) => void };
 
 const ImageGalleryContext = createContext<GalleryContext | null>(null);
 
 export function ChatImageGallery({ messages, children }: { messages: Message[]; children: ReactNode }) {
   const [selectedImage, setSelectedImage] = useState<GalleryImage | null>(null);
+  const [resolvedImages, setResolvedImages] = useState<Record<string, string>>({});
+  const register = useCallback((image: GalleryImage) => {
+    setResolvedImages((current) => current[image.id] === image.src ? current : { ...current, [image.id]: image.src });
+  }, []);
   const images = useMemo<GalleryImage[]>(
     () =>
       messages.flatMap((message) => {
-        const src = getMessageImageSrc(message);
+        const src = getMessageImageSrc(message) || resolvedImages[message.key.id];
         return src ? [{ id: message.key.id, src }] : [];
       }),
-    [messages],
+    [messages, resolvedImages],
   );
   const activeIndex = images.findIndex((image) => image.id === selectedImage?.id);
   const activeImage = images[activeIndex] || selectedImage;
@@ -29,7 +35,7 @@ export function ChatImageGallery({ messages, children }: { messages: Message[]; 
   };
 
   return (
-    <ImageGalleryContext.Provider value={{ open: setSelectedImage }}>
+    <ImageGalleryContext.Provider value={{ open: setSelectedImage, register }}>
       {children}
       <Dialog
         open={!!activeImage}
@@ -69,10 +75,44 @@ export function ChatImageGallery({ messages, children }: { messages: Message[]; 
   );
 }
 
-export function ChatMessageImage({ message, className, style }: { message: Message; className?: string; style?: CSSProperties }) {
+export function ChatMessageImage({ message, instanceName, token, className, style }: { message: Message; instanceName?: string; token?: string; className?: string; style?: CSSProperties }) {
   const gallery = useContext(ImageGalleryContext);
-  const src = getMessageImageSrc(message);
-  if (!src) return null;
+  const register = gallery?.register;
+  const storedSrc = getMessageImageSrc(message);
+  const { data, isPending, isError, refetch } = useQuery({
+    queryKey: ["chat", "image", instanceName, message.key?.id],
+    queryFn: async () => {
+      const response = await api.post<{ base64?: string; mimetype?: string }>(
+        `/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName!)}`,
+        { message },
+        token ? { headers: { apikey: token } } : undefined,
+      );
+      if (!response.data?.base64) throw new Error("Imagem indisponível");
+      return response.data;
+    },
+    enabled: !storedSrc && !!instanceName && !!message.key?.id,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+  const mimeType = data?.mimetype || (message.messageType === "stickerMessage" ? "image/webp" : "image/jpeg");
+  const src = storedSrc || (data?.base64 ? `data:${mimeType};base64,${data.base64}` : null);
+
+  useEffect(() => {
+    if (src) register?.({ id: message.key.id, src });
+  }, [src, message.key.id, register]);
+
+  if (!src) {
+    return (
+      <div className="rounded bg-muted p-4 max-w-xs text-center text-sm text-muted-foreground">
+        {isPending && instanceName ? "Carregando imagem..." : "Imagem indisponível"}
+        {isError && (
+          <button type="button" className="mt-2 block w-full text-primary underline" onClick={() => refetch()}>
+            Tentar novamente
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <button

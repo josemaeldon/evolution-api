@@ -8,7 +8,6 @@ import { Button } from "@evoapi/design-system/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatImageGallery, ChatMessageImage } from "@/components/chat-image-lightbox";
 import { ChatAudioMessage } from "@/components/chat-audio-message";
-import { getMessageImageSrc } from "@/lib/chat-message-image";
 
 import { useInstance } from "@/contexts/InstanceContext";
 
@@ -199,22 +198,13 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
     case "imageMessage":
       return (
         <div className="flex flex-col gap-2">
-          {getMessageImageSrc(message) ? (
-            <ChatMessageImage
-              message={message}
-              className="rounded-lg max-w-full h-auto"
-              style={{
-                maxWidth: "400px",
-                maxHeight: "400px",
-                objectFit: "contain",
-              }}
-            />
-          ) : (
-            <div className="rounded bg-muted p-4 max-w-xs">
-              <p className="text-center text-muted-foreground">Image couldn't be loaded</p>
-              <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data and mediaUrl</p>
-            </div>
-          )}
+          <ChatMessageImage
+            message={message}
+            instanceName={instanceName}
+            token={token}
+            className="rounded-lg max-w-full h-auto"
+            style={{ maxWidth: "400px", maxHeight: "400px", objectFit: "contain" }}
+          />
           {message.message.imageMessage?.caption && <p className="text-sm">{message.message.imageMessage.caption}</p>}
         </div>
       );
@@ -262,7 +252,7 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
       );
 
     case "stickerMessage":
-      return <ChatMessageImage message={message} className="max-w-32 max-h-32 object-contain" />;
+      return <ChatMessageImage message={message} instanceName={instanceName} token={token} className="max-w-32 max-h-32 object-contain" />;
 
     default:
       // Fallback for unknown message types

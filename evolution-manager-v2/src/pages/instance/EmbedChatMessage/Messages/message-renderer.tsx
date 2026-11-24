@@ -3,7 +3,6 @@ import { FileIcon } from "lucide-react";
 import { Button } from "@evoapi/design-system/button";
 import { ChatMessageImage } from "@/components/chat-image-lightbox";
 import { ChatAudioMessage } from "@/components/chat-audio-message";
-import { getMessageImageSrc } from "@/lib/chat-message-image";
 
 import { Message } from "@/types/evolution.types";
 
@@ -38,21 +37,7 @@ export function MessageRenderer({ message, fromMe, instanceName, token }: Messag
     case "imageMessage":
       return (
         <div className="mb-2 flex flex-col gap-2">
-          {getMessageImageSrc(message) ? (
-            <ChatMessageImage
-              message={message}
-              style={{
-                maxWidth: "400px",
-                maxHeight: "400px",
-                objectFit: "contain",
-              }}
-            />
-          ) : (
-            <div className="rounded bg-gray-100 p-4 dark:bg-gray-800">
-              <p className="text-center text-muted-foreground">Image couldn't be loaded</p>
-              <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data and mediaUrl</p>
-            </div>
-          )}
+          <ChatMessageImage message={message} instanceName={instanceName} token={token} style={{ maxWidth: "400px", maxHeight: "400px", objectFit: "contain" }} />
           <MarkdownWrapper>{message.message.imageMessage?.caption}</MarkdownWrapper>
         </div>
       );
@@ -118,6 +103,8 @@ export function MessageRenderer({ message, fromMe, instanceName, token }: Messag
       return (
         <ChatMessageImage
           message={message}
+          instanceName={instanceName}
+          token={token}
           style={{
             maxWidth: "100px",
             maxHeight: "100px",
