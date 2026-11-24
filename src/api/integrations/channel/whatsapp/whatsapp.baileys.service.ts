@@ -3500,10 +3500,14 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async listMessage(data: SendListDto) {
+    if (data.sections.reduce((count, section) => count + section.rows.length, 0) > 10) {
+      throw new BadRequestException('A lista pode ter no máximo 10 opções');
+    }
+
     const message: proto.IMessage = {
       listMessage: {
         title: data.title || '',
-        description: data.description || '',
+        description: data.description?.trim() || 'Escolha uma opção na lista.',
         buttonText: data.buttonText || 'Ver opções',
         footerText: data.footerText || '',
         listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,

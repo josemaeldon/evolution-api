@@ -390,10 +390,10 @@ index 3888449..18de278 100644
  }
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..cd4b54c
+index 0000000..c1a0a72
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,356 @@
 +import { useQueryClient } from "@tanstack/react-query";
 +import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
@@ -513,12 +513,15 @@ index 0000000..cd4b54c
 +  const sendInteractiveMessage = async () => {
 +    if (!kind || !canSend || isSending) return;
 +
++    const pixUrl = new URL("/pix-copy.html", window.location.origin);
++    if (kind === "pix" && pixCode) pixUrl.hash = `code=${encodeURIComponent(pixCode)}`;
 +    const pixSummary = kind === "pix" ? [
 +      "*Pagamento via Pix*",
 +      description.trim(),
 +      `Recebedor: ${pixName.trim()}`,
 +      `Valor: R$ ${Number(pixAmount.replace(",", ".")).toFixed(2).replace(".", ",")}`,
-+      "Copie a próxima mensagem inteira e cole no aplicativo do banco.",
++      `Copiar Pix: ${pixUrl.toString()}`,
++      "Abra o link para copiar o código, ou copie a próxima mensagem inteira.",
 +    ].filter(Boolean).join("\n\n") : "";
 +    const data = kind === "buttons"
 +      ? {
@@ -555,8 +558,8 @@ index 0000000..cd4b54c
 +          await api.post(`/message/sendButtons/${instance.name}`, {
 +            number: remoteJid,
 +            title: "Pix Copia e Cola",
-+            description: "Toque no botão para copiar o código Pix completo.",
-+            buttons: [{ type: "copy", displayText: "Copiar Pix", copyCode: pixCode, id: uuid() }],
++            description: "Toque no botão para abrir o código Pix e copiá-lo.",
++            buttons: [{ type: "url", displayText: "Copiar Pix", url: pixUrl.toString() }],
 +          }, { headers });
 +        } catch (buttonError) {
 +          console.error("Error sending Pix copy button:", buttonError);
@@ -606,21 +609,22 @@ index 0000000..cd4b54c
 +          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar Pix Copia e Cola" : "Mensagem com lista"}</DialogTitle>
 +          <DialogDescription>
 +            Envie para {remoteJid.split("@")[0]}.
-+            {kind === "pix" && " O resumo, o código e o botão de copiar serão enviados. O contato também poderá copiar a mensagem do código inteira."}
++            {kind === "pix" && " O contato receberá o código, um link com botão de copiar e, quando disponível, um botão para abrir esse link no WhatsApp."}
 +          </DialogDescription>
 +
 +          <div className="space-y-4">
 +            {kind !== "pix" && <div className="space-y-1">
 +              <label htmlFor="interactive-title" className="text-sm font-medium">Título</label>
-+              <Input id="interactive-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={1024} />
++              <Input id="interactive-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={kind === "list" ? 60 : 1024} />
 +            </div>}
 +            <div className="space-y-1">
 +              <label htmlFor="interactive-description" className="text-sm font-medium">{kind === "pix" ? "Descrição do pagamento (opcional)" : "Descrição (opcional)"}</label>
-+              <Textarea id="interactive-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} />
++              <Textarea id="interactive-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3}
++                maxLength={kind === "list" ? 1024 : undefined} />
 +            </div>
 +            {kind !== "pix" && <div className="space-y-1">
 +              <label htmlFor="interactive-footer" className="text-sm font-medium">Rodapé (opcional)</label>
-+              <Input id="interactive-footer" value={footer} onChange={(event) => setFooter(event.target.value)} />
++              <Input id="interactive-footer" value={footer} onChange={(event) => setFooter(event.target.value)} maxLength={kind === "list" ? 60 : undefined} />
 +            </div>}
 +
 +            {kind === "buttons" ? (
@@ -682,13 +686,13 @@ index 0000000..cd4b54c
 +              <div className="space-y-4">
 +                <div className="space-y-1">
 +                  <label htmlFor="interactive-button-text" className="text-sm font-medium">Texto do botão que abre a lista</label>
-+                  <Input id="interactive-button-text" value={buttonText} onChange={(event) => setButtonText(event.target.value)} />
++                  <Input id="interactive-button-text" value={buttonText} onChange={(event) => setButtonText(event.target.value)} maxLength={20} />
 +                </div>
 +                {sections.map((section, sectionIndex) => (
 +                  <div key={section.id} className="space-y-3 rounded-lg border p-3">
 +                    <div className="flex items-center gap-2">
 +                      <Input aria-label={`Título da seção ${sectionIndex + 1}`} placeholder={`Seção ${sectionIndex + 1}`}
-+                        value={section.title} onChange={(event) => updateSection(section.id, (current) => ({ ...current, title: event.target.value }))} />
++                        value={section.title} maxLength={24} onChange={(event) => updateSection(section.id, (current) => ({ ...current, title: event.target.value }))} />
 +                      <Button type="button" size="icon" variant="ghost" aria-label={`Remover seção ${sectionIndex + 1}`}
 +                        disabled={sections.length === 1} onClick={() => setSections((current) => current.filter((item) => item.id !== section.id))}>
 +                        <Trash2 className="h-4 w-4" />
@@ -698,7 +702,7 @@ index 0000000..cd4b54c
 +                      <div key={row.id} className="flex gap-2 pl-2">
 +                        <div className="min-w-0 flex-1 space-y-2">
 +                          <Input aria-label={`Título da opção ${rowIndex + 1} da seção ${sectionIndex + 1}`}
-+                            placeholder={`Opção ${rowIndex + 1}`} value={row.title}
++                            placeholder={`Opção ${rowIndex + 1}`} value={row.title} maxLength={24}
 +                            onChange={(event) => updateSection(section.id, (current) => ({ ...current,
 +                              rows: current.rows.map((item) => item.id === row.id ? { ...item, title: event.target.value } : item),
 +                            }))} />

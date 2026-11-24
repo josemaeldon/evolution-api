@@ -345,27 +345,29 @@ export const listMessageSchema: JSONSchema7 = {
   type: 'object',
   properties: {
     number: { ...numberDefinition },
-    title: { type: 'string' },
-    description: { type: 'string' },
-    footerText: { type: 'string' },
-    buttonText: { type: 'string' },
+    title: { type: 'string', minLength: 1, maxLength: 60 },
+    description: { type: 'string', maxLength: 1024 },
+    footerText: { type: 'string', maxLength: 60 },
+    buttonText: { type: 'string', minLength: 1, maxLength: 20 },
     sections: {
       type: 'array',
       minItems: 1,
+      maxItems: 10,
       uniqueItems: true,
       items: {
         type: 'object',
         properties: {
-          title: { type: 'string' },
+          title: { type: 'string', maxLength: 24 },
           rows: {
             type: 'array',
             minItems: 1,
+            maxItems: 10,
             uniqueItems: true,
             items: {
               type: 'object',
               properties: {
-                title: { type: 'string', minLength: 1 },
-                description: { type: 'string' },
+                title: { type: 'string', minLength: 1, maxLength: 24 },
+                description: { type: 'string', maxLength: 72 },
                 rowId: { type: 'string', minLength: 1 },
               },
               required: ['title', 'rowId'],
