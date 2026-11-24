@@ -1228,7 +1228,6 @@ export class ChatwootService {
         const data: SendAudioDto = {
           number: number,
           audio: media,
-          delay: Math.floor(Math.random() * (2000 - 500 + 1)) + 500,
           quoted: options?.quoted,
         };
 
@@ -1249,7 +1248,6 @@ export class ChatwootService {
         mediatype: type as any,
         fileName: fileName,
         media: media,
-        delay: 1200,
         quoted: options?.quoted,
       };
 
@@ -1306,8 +1304,6 @@ export class ChatwootService {
 
   public async receiveWebhook(instance: InstanceDto, body: any) {
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
       const client = await this.clientCw(instance);
 
       if (!client) {
@@ -1503,7 +1499,6 @@ export class ChatwootService {
             const data: SendTextDto = {
               number: chatId,
               text: formatText,
-              delay: Math.floor(Math.random() * (2000 - 500 + 1)) + 500,
               quoted: await this.getQuotedMessage(body, instance),
             };
 
@@ -1590,7 +1585,6 @@ export class ChatwootService {
         const data: SendTextDto = {
           number: chatId,
           text: body.content.replace(/\\\r\n|\\\n|\n/g, '\n'),
-          delay: Math.floor(Math.random() * (2000 - 500 + 1)) + 500,
         };
 
         sendTelemetry('/message/sendText');
