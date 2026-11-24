@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avata
 import { Button } from "@evoapi/design-system/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatImageGallery, ChatMessageImage } from "@/components/chat-image-lightbox";
+import { ChatAudioMessage } from "@/components/chat-audio-message";
 import { getMessageImageSrc } from "@/lib/chat-message-image";
 
 import { useInstance } from "@/contexts/InstanceContext";
@@ -148,7 +149,7 @@ const getMessageText = (messageObj: any): string => {
 };
 
 // Component to render different message types based on messageType
-const MessageContent = ({ message }: { message: Message }) => {
+const MessageContent = ({ message, instanceName, token }: { message: Message; instanceName?: string; token?: string }) => {
   const messageType = message.messageType as string;
 
   switch (messageType) {
@@ -247,22 +248,7 @@ const MessageContent = ({ message }: { message: Message }) => {
       );
 
     case "audioMessage":
-      // Use base64 data or mediaUrl for audio
-      const audioBase64 = message.message.base64 ? (message.message.base64.startsWith("data:") ? message.message.base64 : `data:audio/mpeg;base64,${message.message.base64}`) : null;
-
-      const audioSrc = audioBase64 || message.message.mediaUrl;
-
-      return audioSrc ? (
-        <audio controls className="w-full max-w-xs">
-          <source src={audioSrc} type="audio/mpeg" />
-          Your browser does not support the audio element.
-        </audio>
-      ) : (
-        <div className="rounded bg-muted p-4 max-w-xs">
-          <p className="text-center text-muted-foreground">Audio couldn't be loaded</p>
-          <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data and mediaUrl</p>
-        </div>
-      );
+      return <ChatAudioMessage message={message} instanceName={instanceName} token={token} />;
 
     case "documentMessage":
       return (
@@ -570,7 +556,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
     <div key={message.id} className="mb-4 flex justify-end">
       <div className="max-w-[70%]">
         <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
-          <MessageContent message={message} />
+          <MessageContent message={message} instanceName={instance?.name} token={instance?.token} />
         </div>
         <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
       </div>
@@ -592,7 +578,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
             </div>
           )}
           <div className="rounded-lg border bg-muted px-3 py-2 text-sm text-foreground">
-            <MessageContent message={message} />
+            <MessageContent message={message} instanceName={instance?.name} token={instance?.token} />
           </div>
           <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
         </div>

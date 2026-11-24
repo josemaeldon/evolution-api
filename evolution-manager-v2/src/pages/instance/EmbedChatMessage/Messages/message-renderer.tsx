@@ -2,11 +2,11 @@ import { FileIcon } from "lucide-react";
 
 import { Button } from "@evoapi/design-system/button";
 import { ChatMessageImage } from "@/components/chat-image-lightbox";
+import { ChatAudioMessage } from "@/components/chat-audio-message";
 import { getMessageImageSrc } from "@/lib/chat-message-image";
 
 import { Message } from "@/types/evolution.types";
 
-import { AudioPlayer } from "./audio-player";
 import { ContactMessage } from "./contact-message";
 import { ConversationMessage } from "./conversation-message";
 import { LocationMessage } from "./location-message";
@@ -15,9 +15,11 @@ import { MarkdownWrapper } from "./markdown-wrapper";
 interface MessageRendererProps {
   message: Message;
   fromMe: boolean;
+  instanceName?: string;
+  token?: string;
 }
 
-export function MessageRenderer({ message, fromMe }: MessageRendererProps) {
+export function MessageRenderer({ message, fromMe, instanceName, token }: MessageRendererProps) {
   switch (message.messageType as string) {
     case "conversation": {
       if (message.message.contactMessage) {
@@ -81,17 +83,7 @@ export function MessageRenderer({ message, fromMe }: MessageRendererProps) {
       );
 
     case "audioMessage":
-      // Ensure proper data URI format for audio base64
-      const audioBase64 = message.message.base64 ? (message.message.base64.startsWith("data:") ? message.message.base64 : `data:audio/mpeg;base64,${message.message.base64}`) : null;
-
-      return audioBase64 ? (
-        <AudioPlayer audioUrl={audioBase64} fromMe={fromMe} profilePicUrl="" />
-      ) : (
-        <div className="rounded bg-gray-100 p-4 dark:bg-gray-800">
-          <p className="text-center text-muted-foreground">Audio couldn't be loaded</p>
-          <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data</p>
-        </div>
-      );
+      return <ChatAudioMessage message={message} instanceName={instanceName} token={token} />;
 
     case "documentMessage":
       return (

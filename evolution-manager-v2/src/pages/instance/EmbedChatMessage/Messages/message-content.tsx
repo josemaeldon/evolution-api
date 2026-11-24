@@ -23,9 +23,11 @@ interface MessageContentProps {
   quotedMessage?: Message;
   chat?: Chat;
   fromMe: boolean;
+  instanceName?: string;
+  token?: string;
 }
 
-export function MessageContent({ message, quotedMessage, chat, fromMe, onQuoteClick }: MessageContentProps & { onQuoteClick?: (messageId: string) => void }) {
+export function MessageContent({ message, quotedMessage, chat, fromMe, instanceName, token, onQuoteClick }: MessageContentProps & { onQuoteClick?: (messageId: string) => void }) {
   // Check if message is complete with required properties
   // const isValidMessage = message && message.key && (message.id || message.key.id);
 
@@ -204,7 +206,7 @@ export function MessageContent({ message, quotedMessage, chat, fromMe, onQuoteCl
       {renderParticipantName()}
 
       <div className="flex flex-col">
-        <MessageRenderer message={message} fromMe={fromMe} />
+        <MessageRenderer message={message} fromMe={fromMe} instanceName={instanceName} token={token} />
 
         <MessageBubble.Footer fromMe={fromMe}>
           {renderTimestamp()}

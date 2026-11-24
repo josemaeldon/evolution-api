@@ -72,7 +72,7 @@ const Messages = ({ remoteJid, instance, messages, setMessages }: MessagesProps)
       <div ref={messagesContainerRef} className="custom-scrollbar relative flex-grow overflow-y-auto" style={containerStyle}>
         <div className="relative mx-auto box-border flex w-full max-w-[64rem] flex-col gap-6 bg-transparent p-[0.375rem_1rem_0_1rem]">
           {messages.map((message) => (
-            <MessageContent key={message.key.id} message={message} fromMe={message.key.fromMe} />
+            <MessageContent key={message.key.id} message={message} fromMe={message.key.fromMe} instanceName={instance.name} token={instance.token} />
           ))}
         </div>
       </div>
