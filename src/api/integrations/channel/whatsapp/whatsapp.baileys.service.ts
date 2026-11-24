@@ -3303,7 +3303,12 @@ export class BaileysStartupService extends ChannelStartupService {
     const json = {
       call: () => toString({ display_text: button.displayText, phone_number: button.phoneNumber }),
       reply: () => toString({ display_text: button.displayText, id: button.id }),
-      copy: () => toString({ display_text: button.displayText, copy_code: button.copyCode }),
+      copy: () =>
+        toString({
+          display_text: button.displayText,
+          id: button.id ?? this.generateRandomId(),
+          copy_code: button.copyCode,
+        }),
       url: () => toString({ display_text: button.displayText, url: button.url, merchant_url: button.url }),
       pix: () =>
         toString({

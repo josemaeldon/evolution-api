@@ -390,10 +390,10 @@ index 3888449..18de278 100644
  }
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..7c3bd78
+index 0000000..81e07b4
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,340 @@
 +import { useQueryClient } from "@tanstack/react-query";
 +import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
@@ -513,6 +513,12 @@ index 0000000..7c3bd78
 +  const sendInteractiveMessage = async () => {
 +    if (!kind || !canSend || isSending) return;
 +
++    const pixSummary = kind === "pix" ? [
++      description.trim(),
++      `Recebedor: ${pixName.trim()}`,
++      `Valor: R$ ${Number(pixAmount.replace(",", ".")).toFixed(2).replace(".", ",")}`,
++      `Pix Copia e Cola:\n${pixCode}`,
++    ].filter(Boolean).join("\n\n") : "";
 +    const data = kind === "buttons"
 +      ? {
 +          number: remoteJid,
@@ -520,6 +526,13 @@ index 0000000..7c3bd78
 +          description: description.trim(),
 +          footer: footer.trim(),
 +          buttons: buttons.map((label) => ({ type: "reply", displayText: label.trim(), id: uuid() })),
++        }
++      : kind === "pix"
++      ? {
++          number: remoteJid,
++          title: "Pagamento via Pix",
++          description: pixSummary,
++          buttons: [{ type: "copy", displayText: "Copiar Pix", copyCode: pixCode, id: uuid() }],
 +        }
 +      : {
 +          number: remoteJid,
@@ -540,11 +553,7 @@ index 0000000..7c3bd78
 +    try {
 +      setIsSending(true);
 +      const headers = { apikey: instance.token };
-+      if (kind === "pix") {
-+        await api.post(`/message/sendText/${instance.name}`, { number: remoteJid, text: pixCode }, { headers });
-+      } else {
-+        await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, { headers });
-+      }
++      await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, { headers });
 +      setKind(null);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
@@ -585,7 +594,7 @@ index 0000000..7c3bd78
 +          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar Pix Copia e Cola" : "Mensagem com lista"}</DialogTitle>
 +          <DialogDescription>
 +            Envie para {remoteJid.split("@")[0]}.
-+            {kind === "pix" && " O contato poderá copiar a mensagem inteira e colar no aplicativo do banco."}
++            {kind === "pix" && " A mensagem mostra os dados do pagamento e inclui um botão para copiar o código Pix."}
 +          </DialogDescription>
 +
 +          <div className="space-y-4">
