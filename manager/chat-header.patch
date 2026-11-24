@@ -15,6 +15,28 @@ index f1fa440..df5ae54 100644
  };
  
  export const useFindChat = (props: UseQueryParams<FindChatResponse> & Partial<IParams>) => {
+diff --git a/src/lib/queries/chat/findChats.ts b/src/lib/queries/chat/findChats.ts
+index 50e5ef4..4c29bfa 100644
+--- a/src/lib/queries/chat/findChats.ts
++++ b/src/lib/queries/chat/findChats.ts
+@@ -24,5 +24,6 @@ export const useFindChats = (props: UseQueryParams<FindChatsResponse> & Partial<
+     queryKey: queryKey({ instanceName }),
+     queryFn: () => findChats({ instanceName: instanceName! }),
+     enabled: !!instanceName,
++    refetchInterval: 5000,
+   });
+ };
+diff --git a/src/lib/queries/chat/findMessages.ts b/src/lib/queries/chat/findMessages.ts
+index 292742e..db25f1c 100644
+--- a/src/lib/queries/chat/findMessages.ts
++++ b/src/lib/queries/chat/findMessages.ts
+@@ -28,5 +28,6 @@ export const useFindMessages = (props: UseQueryParams<FindMessagesResponse> & Pa
+     queryKey: queryKey({ instanceName, remoteJid }),
+     queryFn: () => findMessages({ instanceName: instanceName!, remoteJid: remoteJid! }),
+     enabled: !!instanceName && !!remoteJid,
++    refetchInterval: 5000,
+   });
+ };
 diff --git a/src/lib/queries/chat/types.ts b/src/lib/queries/chat/types.ts
 index 001efc0..531364c 100644
 --- a/src/lib/queries/chat/types.ts
@@ -87,10 +109,110 @@ index 3888449..41097e2 100644
      if (!search.trim()) return filtered;
      const q = search.toLowerCase();
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..e194e63 100644
+index 6331202..5be08cc 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
-@@ -613,8 +613,8 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -1,4 +1,5 @@
+ import { Send, User } from "lucide-react";
++import { useQuery } from "@tanstack/react-query";
+ import { RefObject, useEffect, useMemo, useState } from "react";
+ import { useTranslation } from "react-i18next";
+ import { useParams } from "react-router-dom";
+@@ -10,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
+ import { useInstance } from "@/contexts/InstanceContext";
+ 
+ import { useFindChat } from "@/lib/queries/chat/findChat";
++import { api } from "@/lib/queries/api";
+ import { useFindMessages } from "@/lib/queries/chat/findMessages";
+ import { useSendMessage, useSendMedia } from "@/lib/queries/chat/sendMessage";
+ import { getToken, TOKEN_ID } from "@/lib/queries/token";
+@@ -149,6 +151,49 @@ const getMessageText = (messageObj: any): string => {
+   return String(messageObj);
+ };
+ 
++const ImageContent = ({ message }: { message: Message }) => {
++  const { instance } = useInstance();
++  const imageBase64 = message.message.base64;
++  const imageSrc = imageBase64
++    ? imageBase64.startsWith("data:") ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`
++    : message.message.mediaUrl;
++
++  const { data: recoveredImage, isFetching } = useQuery({
++    queryKey: ["chat", "media", instance?.name, message.key.id],
++    queryFn: async () => {
++      const response = await api.post(`/chat/getBase64FromMediaMessage/${instance!.name}`, {
++        message: { key: message.key },
++      });
++      const { base64, mimetype } = response.data;
++      return base64 ? `data:${mimetype || "image/jpeg"};base64,${base64}` : null;
++    },
++    enabled: !imageSrc && !!instance?.name && !!message.key.id,
++    retry: false,
++    staleTime: 5 * 60 * 1000,
++  });
++
++  return (
++    <div className="flex flex-col gap-2">
++      {imageSrc || recoveredImage ? (
++        <img
++          src={imageSrc || recoveredImage || undefined}
++          alt="Image"
++          className="rounded-lg max-w-full h-auto"
++          style={{ maxWidth: "400px", maxHeight: "400px", objectFit: "contain" }}
++          loading="lazy"
++        />
++      ) : (
++        <div className="rounded bg-muted p-4 max-w-xs">
++          <p className="text-center text-muted-foreground">
++            {isFetching ? "Carregando imagem..." : "Imagem indisponível"}
++          </p>
++        </div>
++      )}
++      {message.message.imageMessage?.caption && <p className="text-sm">{message.message.imageMessage.caption}</p>}
++    </div>
++  );
++};
++
+ // Component to render different message types based on messageType
+ const MessageContent = ({ message }: { message: Message }) => {
+   const messageType = message.messageType as string;
+@@ -198,34 +243,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+       return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
+ 
+     case "imageMessage":
+-      // Use base64 data or mediaUrl for images
+-      const imageBase64 = message.message.base64 ? (message.message.base64.startsWith("data:") ? message.message.base64 : `data:image/jpeg;base64,${message.message.base64}`) : null;
+-
+-      const imageSrc = imageBase64 || message.message.mediaUrl;
+-
+-      return (
+-        <div className="flex flex-col gap-2">
+-          {imageSrc ? (
+-            <img
+-              src={imageSrc}
+-              alt="Image"
+-              className="rounded-lg max-w-full h-auto"
+-              style={{
+-                maxWidth: "400px",
+-                maxHeight: "400px",
+-                objectFit: "contain",
+-              }}
+-              loading="lazy"
+-            />
+-          ) : (
+-            <div className="rounded bg-muted p-4 max-w-xs">
+-              <p className="text-center text-muted-foreground">Image couldn't be loaded</p>
+-              <p className="text-center text-xs text-muted-foreground mt-1">Missing base64 data and mediaUrl</p>
+-            </div>
+-          )}
+-          {message.message.imageMessage?.caption && <p className="text-sm">{message.message.imageMessage.caption}</p>}
+-        </div>
+-      );
++      return <ImageContent message={message} />;
+ 
+     case "videoMessage":
+       // Use base64 data or mediaUrl for videos
+@@ -613,8 +631,8 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
