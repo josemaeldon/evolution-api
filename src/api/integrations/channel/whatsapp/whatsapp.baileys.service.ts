@@ -1204,6 +1204,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
           const messageRaw = this.prepareMessage(received);
 
+          if (messageRaw.key.remoteJid?.includes('@lid') && messageRaw.key.remoteJidAlt) {
+            messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
+          }
+
           if (messageRaw.messageType === 'pollUpdateMessage') {
             const pollCreationKey = messageRaw.message.pollUpdateMessage.pollCreationMessageKey;
             const pollMessage = (await this.getMessage(pollCreationKey, true)) as proto.IWebMessageInfo;
@@ -1476,9 +1480,6 @@ export class BaileysStartupService extends ChannelStartupService {
           this.logger.verbose(messageRaw);
 
           sendTelemetry(`received.message.${messageRaw.messageType ?? 'unknown'}`);
-          if (messageRaw.key.remoteJid?.includes('@lid') && messageRaw.key.remoteJidAlt) {
-            messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
-          }
           console.log(messageRaw);
 
           this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
@@ -5108,6 +5109,7 @@ export class BaileysStartupService extends ChannelStartupService {
           {
             OR: [
               keyFilters?.remoteJid ? { key: { path: ['remoteJid'], equals: keyFilters?.remoteJid } } : {},
+              keyFilters?.remoteJid ? { key: { path: ['remoteJidAlt'], equals: keyFilters?.remoteJid } } : {},
               keyFilters?.remoteJidAlt ? { key: { path: ['remoteJidAlt'], equals: keyFilters?.remoteJidAlt } } : {},
             ],
           },
@@ -5137,6 +5139,7 @@ export class BaileysStartupService extends ChannelStartupService {
           {
             OR: [
               keyFilters?.remoteJid ? { key: { path: ['remoteJid'], equals: keyFilters?.remoteJid } } : {},
+              keyFilters?.remoteJid ? { key: { path: ['remoteJidAlt'], equals: keyFilters?.remoteJid } } : {},
               keyFilters?.remoteJidAlt ? { key: { path: ['remoteJidAlt'], equals: keyFilters?.remoteJidAlt } } : {},
             ],
           },
