@@ -110,10 +110,10 @@ index 3888449..41097e2 100644
      const q = search.toLowerCase();
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..bd9c0ae
+index 0000000..7456b4b
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,328 @@
 +import { useQueryClient } from "@tanstack/react-query";
 +import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
@@ -195,6 +195,11 @@ index 0000000..bd9c0ae
 +  const sendInteractiveMessage = async () => {
 +    if (!kind || !canSend || isSending) return;
 +
++    const pixAmountLabel = pixAmount.trim()
++      ? `Valor: R$ ${Number(pixAmount.replace(",", ".")).toFixed(2).replace(".", ",")}`
++      : "";
++    const pixDescription = [description.trim(), `Recebedor: ${pixName.trim()}`, pixAmountLabel]
++      .filter(Boolean).join("\n\n");
 +    const fallbackText = kind === "buttons"
 +      ? [
 +          `*${title.trim()}*`,
@@ -209,7 +214,7 @@ index 0000000..bd9c0ae
 +          description.trim(),
 +          `Recebedor: ${pixName.trim()}`,
 +          `Chave Pix (${PIX_KEY_TYPES.find((type) => type.value === pixKeyType)?.label}):\n${pixKey.trim()}`,
-+          pixAmount.trim() ? `Valor: R$ ${Number(pixAmount.replace(",", ".")).toFixed(2).replace(".", ",")}` : "",
++          pixAmountLabel,
 +          footer.trim(),
 +        ].filter(Boolean).join("\n\n")
 +      : null;
@@ -226,15 +231,12 @@ index 0000000..bd9c0ae
 +      ? {
 +          number: remoteJid,
 +          title: title.trim(),
-+          description: description.trim(),
++          description: pixDescription,
 +          footer: footer.trim(),
 +          buttons: [{
-+            type: "pix",
-+            name: pixName.trim(),
-+            keyType: pixKeyType,
-+            key: pixKey.trim(),
-+            currency: "BRL",
-+            ...(pixAmount.trim() ? { amount: Number(pixAmount.replace(",", ".")) } : {}),
++            type: "copy",
++            displayText: "Copiar chave Pix",
++            copyCode: pixKey.trim(),
 +          }],
 +        }
 +      : {
@@ -441,16 +443,17 @@ index 0000000..bd9c0ae
 +  );
 +}
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..05fcb26 100644
+index 6331202..7d7c8fa 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
-@@ -1,15 +1,18 @@
+@@ -1,15 +1,19 @@
 -import { Send, User } from "lucide-react";
 +import { Send, User, X } from "lucide-react";
 +import { useQuery } from "@tanstack/react-query";
  import { RefObject, useEffect, useMemo, useState } from "react";
  import { useTranslation } from "react-i18next";
  import { useParams } from "react-router-dom";
++import { toast } from "react-toastify";
  
  import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
  import { Button } from "@evoapi/design-system/button";
@@ -464,7 +467,7 @@ index 6331202..05fcb26 100644
  import { useFindMessages } from "@/lib/queries/chat/findMessages";
  import { useSendMessage, useSendMedia } from "@/lib/queries/chat/sendMessage";
  import { getToken, TOKEN_ID } from "@/lib/queries/token";
-@@ -21,6 +24,7 @@ import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
+@@ -21,6 +25,7 @@ import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
  // Import components from EmbedChatMessage for attachment functionality
  import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
  import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
@@ -472,7 +475,7 @@ index 6331202..05fcb26 100644
  
  type MessagesProps = {
    textareaRef: RefObject<HTMLTextAreaElement>;
-@@ -149,6 +153,121 @@ const getMessageText = (messageObj: any): string => {
+@@ -149,6 +154,153 @@ const getMessageText = (messageObj: any): string => {
    return String(messageObj);
  };
  
@@ -531,6 +534,16 @@ index 6331202..05fcb26 100644
 +        const label = isPix ? "Pagar com Pix" : params.display_text || params.displayText ||
 +          params.title || button.reply?.title || button.buttonText?.displayText || content.buttonText;
 +        const pixKey = isPix ? params.payment_settings?.[0]?.pix_static_code?.key : null;
++        if (button.name === "cta_copy" && params.copy_code) {
++          return (
++            <button key={index} type="button" className="w-full border-t border-current/15 pt-2 text-center text-sm font-medium"
++              onClick={() => navigator.clipboard.writeText(params.copy_code)
++                .then(() => toast.success("Chave copiada"))
++                .catch(() => toast.error("Não foi possível copiar a chave"))}>
++              {label || "Copiar chave"}
++            </button>
++          );
++        }
 +        return (
 +          <div key={index} className="border-t border-current/15 pt-2 text-center text-sm font-medium">
 +            {label || "Botão"}
@@ -546,6 +559,28 @@ index 6331202..05fcb26 100644
 +      )}
 +    </div>
 +  );
++};
++
++const InteractiveResponseContent = ({ message }: { message: Message }) => {
++  const content = message.message;
++  const button = content.buttonsResponseMessage || content.templateButtonReplyMessage;
++  if (button) return <span>{button.selectedDisplayText || button.selectedButtonId || button.selectedId || "Resposta de botão"}</span>;
++
++  const list = content.listResponseMessage;
++  if (list) return <span>{list.title || list.singleSelectReply?.selectedRowId || "Resposta de lista"}</span>;
++
++  const interactive = content.interactiveResponseMessage;
++  if (interactive) {
++    let params: any = {};
++    try {
++      params = JSON.parse(interactive.nativeFlowResponseMessage?.paramsJson || "{}");
++    } catch {
++      // The response body can still contain the selected label.
++    }
++    return <span>{interactive.body?.text || params.display_text || params.title || params.id || "Resposta interativa"}</span>;
++  }
++
++  return <span>Resposta interativa</span>;
 +};
 +
 +const ImageContent = ({ message }: { message: Message }) => {
@@ -594,7 +629,7 @@ index 6331202..05fcb26 100644
  // Component to render different message types based on messageType
  const MessageContent = ({ message }: { message: Message }) => {
    const messageType = message.messageType as string;
-@@ -198,34 +317,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -198,34 +350,7 @@ const MessageContent = ({ message }: { message: Message }) => {
        return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
  
      case "imageMessage":
@@ -630,7 +665,7 @@ index 6331202..05fcb26 100644
  
      case "videoMessage":
        // Use base64 data or mediaUrl for videos
-@@ -287,6 +379,12 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -287,6 +412,18 @@ const MessageContent = ({ message }: { message: Message }) => {
      case "stickerMessage":
        return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
  
@@ -640,10 +675,16 @@ index 6331202..05fcb26 100644
 +    case "listMessage":
 +      return <InteractiveContent message={message} />;
 +
++    case "buttonsResponseMessage":
++    case "templateButtonReplyMessage":
++    case "listResponseMessage":
++    case "interactiveResponseMessage":
++      return <InteractiveResponseContent message={message} />;
++
      default:
        // Fallback for unknown message types
        return (
-@@ -417,6 +515,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -417,6 +554,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      instanceName: instance?.name,
    });
  
@@ -666,7 +707,7 @@ index 6331202..05fcb26 100644
    const { data: messages, isSuccess } = useFindMessages({
      remoteJid,
      instanceName: instance?.name,
-@@ -613,19 +727,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -613,19 +766,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
@@ -713,7 +754,7 @@ index 6331202..05fcb26 100644
            <div className="min-w-0 flex-1">
              <h3 className="truncate font-semibold">{headerName}</h3>
              <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
-@@ -653,6 +786,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -653,6 +825,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
            <div className="flex items-center gap-2 px-2 py-1.5">
              <div className="flex flex-shrink-0 items-center">
                {instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}
