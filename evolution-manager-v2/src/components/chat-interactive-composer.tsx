@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/queries/api";
 
-type Kind = "buttons" | "list" | "poll" | "flow";
+type Kind = "buttons" | "copy" | "pix" | "list" | "poll" | "flow";
 
 type Props = {
   instanceName: string;
@@ -19,6 +19,8 @@ type Props = {
 
 const routes: Record<Kind, string> = {
   buttons: "sendButtons",
+  copy: "sendButtons",
+  pix: "sendButtons",
   list: "sendList",
   poll: "sendPoll",
   flow: "sendFlow",
@@ -26,6 +28,8 @@ const routes: Record<Kind, string> = {
 
 const labels: Record<Kind, string> = {
   buttons: "Botões",
+  copy: "Copiar código",
+  pix: "Pix copia e cola",
   list: "Lista",
   poll: "Enquete",
   flow: "Formulário",
@@ -35,7 +39,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   const business = integration === "WHATSAPP-BUSINESS";
   const supported = business || integration === "WHATSAPP-BAILEYS";
   const group = remoteJid.endsWith("@g.us");
-  const kinds: Kind[] = group ? ["poll"] : business ? ["buttons", "list", "flow"] : ["buttons", "list", "poll"];
+  const kinds: Kind[] = group ? ["poll"] : business ? ["buttons", "list", "flow"] : ["buttons", "copy", "pix", "list", "poll"];
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<Kind>(group ? "poll" : "buttons");
@@ -45,6 +49,8 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   const [items, setItems] = useState<string[]>(["", ""]);
   const [flowId, setFlowId] = useState("");
   const [screenId, setScreenId] = useState("");
+  const [copyCode, setCopyCode] = useState("");
+  const [paymentUrl, setPaymentUrl] = useState("");
   const [selectableCount, setSelectableCount] = useState(1);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -52,8 +58,19 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   if (!supported || (business && group)) return null;
 
   const entries = items.map((item) => item.trim()).filter(Boolean);
+  const validPaymentUrl = (() => {
+    try {
+      return new URL(paymentUrl.trim()).protocol === "https:";
+    } catch {
+      return false;
+    }
+  })();
   const valid = kind === "flow"
     ? Boolean(flowId.trim() && body.trim() && cta.trim())
+    : kind === "pix"
+      ? Boolean(title.trim() && copyCode.trim() && validPaymentUrl)
+      : kind === "copy"
+        ? Boolean(title.trim() && copyCode.trim() && (!paymentUrl.trim() || validPaymentUrl))
     : kind === "poll"
       ? Boolean(title.trim() && entries.length >= 2 && selectableCount >= 1 && selectableCount <= entries.length)
       : kind === "list"
@@ -67,6 +84,16 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
     const number = remoteJid.split("@")[0];
     const payload = kind === "buttons"
       ? { number, title: title.trim(), buttons: entries.map((displayText, index) => ({ type: "reply", displayText, id: `reply_${index + 1}` })) }
+      : kind === "copy" || kind === "pix"
+        ? {
+          number,
+          title: title.trim(),
+          ...(body.trim() && { description: body.trim() }),
+          buttons: [
+            { type: "copy", displayText: kind === "pix" ? "Copiar código Pix" : "Copiar código", copyCode },
+            ...(paymentUrl.trim() ? [{ type: "url", displayText: kind === "pix" ? "Ver pagamento" : "Abrir página", url: paymentUrl.trim() }] : []),
+          ],
+        }
       : kind === "list"
         ? { number, title: title.trim(), description: body.trim(), buttonText: cta.trim(), sections: [{ title: title.trim().slice(0, 24), rows: entries.map((rowTitle, index) => ({ title: rowTitle, description: "", rowId: `row_${index + 1}` })) }] }
         : kind === "poll"
@@ -85,6 +112,8 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
       setItems(["", ""]);
       setFlowId("");
       setScreenId("");
+      setCopyCode("");
+      setPaymentUrl("");
     } catch (cause: any) {
       setError(cause?.response?.data?.message || cause?.message || "Não foi possível enviar a mensagem.");
     } finally {
@@ -119,9 +148,15 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
             <Input aria-label="Cabeçalho opcional" placeholder="Cabeçalho (opcional)" maxLength={60} value={title} onChange={(event) => setTitle(event.target.value)} />
             <Input aria-label="Tela inicial opcional" placeholder="ID da tela inicial (opcional)" value={screenId} onChange={(event) => setScreenId(event.target.value)} />
           </>}
-          {(kind === "list" || kind === "flow") && <Textarea aria-label="Texto da mensagem" placeholder="Texto da mensagem" maxLength={1024} value={body} onChange={(event) => setBody(event.target.value)} />}
+          {(kind === "list" || kind === "flow" || kind === "copy" || kind === "pix") && <Textarea aria-label="Texto da mensagem" placeholder={kind === "copy" || kind === "pix" ? "Descrição da cobrança (opcional)" : "Texto da mensagem"} maxLength={1024} value={body} onChange={(event) => setBody(event.target.value)} />}
           {(kind === "list" || kind === "flow") && <Input aria-label="Texto do botão" placeholder="Texto do botão" maxLength={20} value={cta} onChange={(event) => setCta(event.target.value)} />}
-          {kind !== "flow" && <div className="grid gap-2">
+          {(kind === "copy" || kind === "pix") && <>
+            <Textarea aria-label={kind === "pix" ? "Código Pix copia e cola" : "Código para copiar"} placeholder={kind === "pix" ? "Código Pix copia e cola" : "Código para copiar"} value={copyCode} onChange={(event) => setCopyCode(event.target.value)} />
+            <Input type="url" aria-label="URL da página de pagamento" placeholder={kind === "pix" ? "https://... página de pagamento" : "https://... página opcional"} value={paymentUrl} onChange={(event) => setPaymentUrl(event.target.value)} />
+            {paymentUrl.trim() && !validPaymentUrl && <p className="text-xs text-destructive">Informe uma URL HTTPS válida.</p>}
+            <p className="text-xs text-muted-foreground">O código será copiado exatamente como informado.</p>
+          </>}
+          {kind !== "flow" && kind !== "copy" && kind !== "pix" && <div className="grid gap-2">
             <span className="text-sm font-medium">{kind === "poll" ? "Opções" : kind === "list" ? "Itens da lista" : "Botões"}</span>
             {items.map((item, index) => <div key={index} className="flex gap-2">
               <Input aria-label={`Opção ${index + 1}`} placeholder={`Opção ${index + 1}`} maxLength={kind === "list" ? 24 : 20} value={item} onChange={(event) => setItems((current) => current.map((value, position) => position === index ? event.target.value : value))} />
