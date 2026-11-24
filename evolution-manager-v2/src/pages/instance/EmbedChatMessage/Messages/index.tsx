@@ -27,6 +27,7 @@ const Messages = ({ remoteJid, instance, messages, setMessages }: MessagesProps)
     instanceName: instance?.name,
     remoteJid,
     enabled: !!instance?.name && !!remoteJid,
+    refetchInterval: 5000,
   });
 
   // Update messages when new data is fetched

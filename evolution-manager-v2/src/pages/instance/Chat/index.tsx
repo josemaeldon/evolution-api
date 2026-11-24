@@ -37,7 +37,7 @@ function Chat() {
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ChatKind>("contacts");
 
-  const { data: chats } = useFindChats({ instanceName: instance?.name });
+  const { data: chats } = useFindChats({ instanceName: instance?.name, refetchInterval: 5000 });
 
   const allChats = useMemo(() => {
     if (!chats) return realtimeChats;
@@ -58,7 +58,7 @@ function Chat() {
     const serverUrl = getToken(TOKEN_ID.API_URL);
     if (!serverUrl) return;
 
-    const socket = connectSocket(serverUrl);
+    const socket = connectSocket(serverUrl, instance.token);
 
     const handle = (data: { instance?: string; data?: { key?: { remoteJid?: string; profilePictureUrl?: string }; pushName?: string } }) => {
       if (!instance || data.instance !== instance.name) return;

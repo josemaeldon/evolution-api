@@ -1,34 +1,40 @@
 import { io, Socket } from "socket.io-client";
+import { getToken, TOKEN_ID } from "@/lib/queries/token";
 
-// Store active sockets
-const activeSockets = new Map<string, Socket>();
+type SocketEntry = { socket: Socket; users: number };
+const activeSockets = new Map<string, SocketEntry>();
 
 export interface WebSocketConnection {
+  _socket?: Socket;
   on: (event: string, callback: (data: any) => void) => void;
   off: (event: string) => void;
   connect: () => void;
   disconnect: () => void;
 }
 
-export const connectSocket = (serverUrl: string): WebSocketConnection => {
-  // Check if socket already exists for this URL
-  if (activeSockets.has(serverUrl)) {
-    const existingSocket = activeSockets.get(serverUrl)!;
-    return createSocketWrapper(existingSocket);
+export const connectSocket = (serverUrl: string, token?: string): WebSocketConnection => {
+  const apiKey = token || getToken(TOKEN_ID.INSTANCE_TOKEN) || getToken(TOKEN_ID.TOKEN) || "";
+  const key = `${serverUrl}\0${apiKey}`;
+  const existing = activeSockets.get(key);
+  if (existing) {
+    existing.users += 1;
+    return createSocketWrapper(existing.socket);
   }
 
   // Create new socket connection
   const socket = io(serverUrl, {
-    transports: ["websocket", "polling"],
+    // HTTP long polling also works behind proxies that do not forward WebSocket upgrades.
+    transports: ["polling"],
+    query: { apikey: apiKey },
     autoConnect: false,
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: 2,
     reconnectionDelay: 1000,
     timeout: 20000,
   });
 
   // Store socket
-  activeSockets.set(serverUrl, socket);
+  activeSockets.set(key, { socket, users: 1 });
 
   // Set up connection event handlers
   socket.on("connect", () => {
@@ -40,6 +46,14 @@ export const connectSocket = (serverUrl: string): WebSocketConnection => {
   });
 
   socket.on("connect_error", (error) => {
+    const status = (error as Error & { context?: { status?: number } }).context?.status;
+    if (status === 404 || status === 403 || status === 401) {
+      // A disabled Socket.IO endpoint or rejected key will not recover by retrying.
+      socket.io.opts.reconnection = false;
+      socket.disconnect();
+      console.warn(`Socket.IO indisponível em ${serverUrl} (HTTP ${status}); usando atualização periódica.`);
+      return;
+    }
     console.error(`🚫 WebSocket connection error to ${serverUrl}:`, error);
   });
 
@@ -55,12 +69,13 @@ export const connectSocket = (serverUrl: string): WebSocketConnection => {
 };
 
 export const disconnectSocket = (connection: WebSocketConnection | Socket): void => {
-  // Find and remove from active sockets
-  for (const [url, socket] of activeSockets.entries()) {
-    if (socket === connection || (connection as any)._socket === socket) {
-      console.log(`🔌 Disconnecting socket for ${url}`);
-      socket.disconnect();
-      activeSockets.delete(url);
+  for (const [key, entry] of activeSockets.entries()) {
+    if (entry.socket === connection || (connection as WebSocketConnection & { _socket?: Socket })._socket === entry.socket) {
+      entry.users -= 1;
+      if (entry.users === 0) {
+        entry.socket.disconnect();
+        activeSockets.delete(key);
+      }
       break;
     }
   }
@@ -68,12 +83,17 @@ export const disconnectSocket = (connection: WebSocketConnection | Socket): void
 
 // Create a wrapper that provides a consistent interface
 const createSocketWrapper = (socket: Socket): WebSocketConnection => {
+  const listeners = new Map<string, Set<(data: any) => void>>();
   return {
+    _socket: socket,
     on: (event: string, callback: (data: any) => void) => {
       socket.on(event, callback);
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(callback);
     },
     off: (event: string) => {
-      socket.off(event);
+      listeners.get(event)?.forEach((callback) => socket.off(event, callback));
+      listeners.delete(event);
     },
     connect: () => {
       if (!socket.connected) {
@@ -89,9 +109,8 @@ const createSocketWrapper = (socket: Socket): WebSocketConnection => {
 // Cleanup function to disconnect all sockets
 export const disconnectAllSockets = (): void => {
   console.log("🧹 Disconnecting all websockets...");
-  for (const [url, socket] of activeSockets.entries()) {
-    console.log(`🔌 Disconnecting socket for ${url}`);
-    socket.disconnect();
+  for (const [, entry] of activeSockets.entries()) {
+    entry.socket.disconnect();
   }
   activeSockets.clear();
 };

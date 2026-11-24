@@ -397,6 +397,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
   const { data: messages, isSuccess } = useFindMessages({
     remoteJid,
     instanceName: instance?.name,
+    refetchInterval: 5000,
   });
 
   // Combine React Query messages with real-time updates
@@ -427,7 +428,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
       return;
     }
 
-    const socket = connectSocket(serverUrl);
+    const socket = connectSocket(serverUrl, instance.token);
 
     // Function to update messages from websocket events
     const updateMessagesFromWebsocket = (_eventType: string, data: any) => {

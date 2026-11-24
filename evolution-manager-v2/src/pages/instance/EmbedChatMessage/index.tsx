@@ -126,7 +126,7 @@ function EmbedChatMessage() {
       localStorage.setItem("accessToken", tokenFromUrl);
     }
 
-    const socket = connectSocket(serverUrl);
+    const socket = connectSocket(serverUrl, activeInstance.token);
 
     function updateChats(_: string, data: any) {
       if (!activeInstance) return;
