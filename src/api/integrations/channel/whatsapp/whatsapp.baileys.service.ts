@@ -2157,9 +2157,8 @@ export class BaileysStartupService extends ChannelStartupService {
     // NOTE: NÃO DEVEMOS GERAR O messageId AQUI, SOMENTE SE VIER INFORMADO POR PARAMETRO. A GERAÇÃO ANTERIOR IMPEDE O WZAP DE IDENTIFICAR A SOURCE.
     if (messageId) option.messageId = messageId;
 
-    if (message['viewOnceMessage'] || message['interactiveMessage']) {
+    if (message['viewOnceMessage'] || message['interactiveMessage'] || message['listMessage']) {
       const interactiveMessage = message.interactiveMessage ?? message.viewOnceMessage?.message?.interactiveMessage;
-      const isPix = interactiveMessage?.nativeFlowMessage?.buttons?.some((button) => button.name === 'payment_info');
       const m = generateWAMessageFromContent(sender, message, {
         timestamp: new Date(),
         userJid: this.instance.wuid,
@@ -2169,7 +2168,11 @@ export class BaileysStartupService extends ChannelStartupService {
       });
       const id = await this.client.relayMessage(sender, m.message, {
         messageId: m.key.id,
-        additionalNodes: interactiveMessage ? this.interactiveRelayNodes(sender, isPix) : undefined,
+        additionalNodes: message.listMessage
+          ? this.listRelayNodes()
+          : interactiveMessage
+            ? this.interactiveRelayNodes()
+            : undefined,
       });
       m.key = { id, remoteJid: sender, participant: isPnUser(sender) ? sender : undefined, fromMe: true };
       for (const [key, value] of Object.entries(m)) {
@@ -2294,28 +2297,30 @@ export class BaileysStartupService extends ChannelStartupService {
     );
   }
 
-  private interactiveRelayNodes(jid: string, isPix: boolean): BinaryNode[] {
-    const attrs = {
-      actual_actors: '2',
-      host_storage: '2',
-      privacy_mode_ts: (Math.floor(Date.now() / 1000) - 77980457).toString(),
-    };
-    const biz: BinaryNode = isPix
-      ? { tag: 'biz', attrs: { ...attrs, native_flow_name: 'payment_info' } }
-      : {
-          tag: 'biz',
-          attrs,
-          content: [
-            {
-              tag: 'interactive',
-              attrs: { type: 'native_flow', v: '1' },
-              content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
-            },
-            { tag: 'quality_control', attrs: { source_type: 'third_party' } },
-          ],
-        };
+  private interactiveRelayNodes(): BinaryNode[] {
+    return [
+      {
+        tag: 'biz',
+        attrs: {},
+        content: [
+          {
+            tag: 'interactive',
+            attrs: { type: 'native_flow', v: '1' },
+            content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
+          },
+        ],
+      },
+    ];
+  }
 
-    return isJidGroup(jid) ? [biz] : [{ tag: 'bot', attrs: { biz_bot: '1' } }, biz];
+  private listRelayNodes(): BinaryNode[] {
+    return [
+      {
+        tag: 'biz',
+        attrs: {},
+        content: [{ tag: 'list', attrs: { type: 'product_list', v: '2' } }],
+      },
+    ];
   }
 
   private async sendMessageWithTyping<T = proto.IMessage>(
@@ -3306,7 +3311,9 @@ export class BaileysStartupService extends ChannelStartupService {
             status: 'pending',
             subtotal: amount,
             order_type: 'ORDER',
-            items: [{ name: button.name, amount, quantity: 1, sale_amount: amount }],
+            items: [
+              { name: amount.value ? button.name : '', amount, quantity: amount.value ? 1 : 0, sale_amount: amount },
+            ],
           },
           payment_settings: [
             {
@@ -3391,8 +3398,7 @@ export class BaileysStartupService extends ChannelStartupService {
           footer: data.footer ? { text: data.footer } : undefined,
           nativeFlowMessage: {
             buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
-            messageParamsJson: '{}',
-            messageVersion: 1,
+            messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
           },
         },
       };
@@ -3441,7 +3447,6 @@ export class BaileysStartupService extends ChannelStartupService {
         nativeFlowMessage: {
           buttons: buttons,
           messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
-          messageVersion: 1,
         },
       },
     };
@@ -3478,33 +3483,20 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async listMessage(data: SendListDto) {
     const message: proto.IMessage = {
-      viewOnceMessage: {
-        message: {
-          interactiveMessage: {
-            body: { text: [data.title, data.description].filter(Boolean).join('\n\n') },
-            footer: data.footerText ? { text: data.footerText } : undefined,
-            nativeFlowMessage: {
-              buttons: [
-                {
-                  name: 'single_select',
-                  buttonParamsJson: JSON.stringify({
-                    title: data.buttonText,
-                    sections: data.sections.map((section) => ({
-                      title: section.title,
-                      rows: section.rows.map((row) => ({
-                        id: row.rowId,
-                        title: row.title,
-                        description: row.description,
-                      })),
-                    })),
-                  }),
-                },
-              ],
-              messageParamsJson: '{}',
-              messageVersion: 1,
-            },
-          },
-        },
+      listMessage: {
+        title: data.title || '',
+        description: data.description || '',
+        buttonText: data.buttonText || 'Ver opções',
+        footerText: data.footerText || '',
+        listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,
+        sections: data.sections.map((section) => ({
+          title: section.title,
+          rows: section.rows.map((row) => ({
+            title: row.title,
+            description: row.description,
+            rowId: row.rowId,
+          })),
+        })),
       },
     };
 

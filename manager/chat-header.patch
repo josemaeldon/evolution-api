@@ -408,7 +408,7 @@ index 0000000..62eabe0
 +  );
 +}
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..8097e18 100644
+index 6331202..05fcb26 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
 @@ -1,15 +1,18 @@
@@ -439,43 +439,76 @@ index 6331202..8097e18 100644
  
  type MessagesProps = {
    textareaRef: RefObject<HTMLTextAreaElement>;
-@@ -149,6 +153,88 @@ const getMessageText = (messageObj: any): string => {
+@@ -149,6 +153,121 @@ const getMessageText = (messageObj: any): string => {
    return String(messageObj);
  };
  
++const parseButtonParams = (button: any) => {
++  if (!button.buttonParamsJson) return button;
++  try {
++    return JSON.parse(button.buttonParamsJson);
++  } catch {
++    return button;
++  }
++};
++
++const ListContent = ({ label, sections }: { label: string; sections: any[] }) => (
++  <details className="border-t border-current/15 pt-2 text-sm">
++    <summary className="cursor-pointer text-center font-medium">{label}</summary>
++    <div className="mt-2 max-h-64 space-y-3 overflow-y-auto border-t border-current/15 pt-2 text-left">
++      {sections.map((section, sectionIndex) => (
++        <div key={sectionIndex} className="space-y-1">
++          {section.title && <p className="text-xs font-semibold opacity-70">{section.title}</p>}
++          {(Array.isArray(section.rows) ? section.rows : []).map((row: any, rowIndex: number) => (
++            <div key={row.id || row.rowId || rowIndex} className="border-b border-current/10 py-1 last:border-0">
++              <p className="font-medium">{row.title}</p>
++              {row.description && <p className="text-xs opacity-70">{row.description}</p>}
++            </div>
++          ))}
++        </div>
++      ))}
++    </div>
++  </details>
++);
++
 +const InteractiveContent = ({ message }: { message: Message }) => {
 +  const content = message.message.viewOnceMessage?.message?.interactiveMessage ||
++    message.message.viewOnceMessageV2?.message?.interactiveMessage ||
 +    message.message.interactiveMessage || message.message.buttonMessage || message.message.listMessage;
 +  if (!content) return <span>Mensagem interativa</span>;
 +
 +  const body = content.body?.text || [content.title, content.description].filter(Boolean).join("\n\n");
-+  const buttons = content.nativeFlowMessage?.buttons || content.buttons || [];
++  const buttons = content.nativeFlowMessage?.buttons || content.buttons || content.action?.buttons || [];
++  const legacySections = content.sections || content.action?.sections;
 +
 +  return (
-+    <div className="min-w-40 space-y-2">
++    <div className="min-w-40 max-w-72 space-y-2">
 +      {body && <p className="whitespace-pre-wrap">{body}</p>}
 +      {(content.footer?.text || content.footerText) && (
 +        <p className="text-xs opacity-70">{content.footer?.text || content.footerText}</p>
 +      )}
 +      {buttons.map((button: any, index: number) => {
-+        let params: any = {};
-+        try {
-+          params = button.buttonParamsJson ? JSON.parse(button.buttonParamsJson) : button;
-+        } catch {
-+          params = button;
++        const params = parseButtonParams(button);
++        if (button.name === "single_select") {
++          const sections = Array.isArray(params.sections) ? params.sections : [];
++          return <ListContent key={index} label={params.title || content.buttonText || "Ver opções"} sections={sections} />;
 +        }
++
 +        const isPix = button.name === "payment_info";
 +        const label = isPix ? "Pagar com Pix" : params.display_text || params.displayText ||
-+          params.title || button.reply?.title || content.buttonText;
++          params.title || button.reply?.title || button.buttonText?.displayText || content.buttonText;
 +        const pixKey = isPix ? params.payment_settings?.[0]?.pix_static_code?.key : null;
 +        return (
 +          <div key={index} className="border-t border-current/15 pt-2 text-center text-sm font-medium">
-+            {label}
++            {label || "Botão"}
 +            {pixKey && <p className="break-all text-xs font-normal opacity-70">Chave: {pixKey}</p>}
 +          </div>
 +        );
 +      })}
-+      {!buttons.length && content.buttonText && (
++      {!buttons.length && Array.isArray(legacySections) && (
++        <ListContent label={content.buttonText || "Ver opções"} sections={legacySections} />
++      )}
++      {!buttons.length && !Array.isArray(legacySections) && content.buttonText && (
 +        <div className="border-t border-current/15 pt-2 text-center text-sm font-medium">{content.buttonText}</div>
 +      )}
 +    </div>
@@ -528,7 +561,7 @@ index 6331202..8097e18 100644
  // Component to render different message types based on messageType
  const MessageContent = ({ message }: { message: Message }) => {
    const messageType = message.messageType as string;
-@@ -198,34 +284,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -198,34 +317,7 @@ const MessageContent = ({ message }: { message: Message }) => {
        return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
  
      case "imageMessage":
@@ -564,7 +597,7 @@ index 6331202..8097e18 100644
  
      case "videoMessage":
        // Use base64 data or mediaUrl for videos
-@@ -287,6 +346,12 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -287,6 +379,12 @@ const MessageContent = ({ message }: { message: Message }) => {
      case "stickerMessage":
        return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
  
@@ -577,7 +610,7 @@ index 6331202..8097e18 100644
      default:
        // Fallback for unknown message types
        return (
-@@ -417,6 +482,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -417,6 +515,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      instanceName: instance?.name,
    });
  
@@ -600,7 +633,7 @@ index 6331202..8097e18 100644
    const { data: messages, isSuccess } = useFindMessages({
      remoteJid,
      instanceName: instance?.name,
-@@ -613,19 +694,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -613,19 +727,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
@@ -647,7 +680,7 @@ index 6331202..8097e18 100644
            <div className="min-w-0 flex-1">
              <h3 className="truncate font-semibold">{headerName}</h3>
              <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
-@@ -653,6 +753,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -653,6 +786,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
            <div className="flex items-center gap-2 px-2 py-1.5">
              <div className="flex flex-shrink-0 items-center">
                {instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}
