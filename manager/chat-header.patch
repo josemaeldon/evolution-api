@@ -110,10 +110,10 @@ index 3888449..41097e2 100644
      const q = search.toLowerCase();
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..62eabe0
+index 0000000..bd9c0ae
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,293 @@
+@@ -0,0 +1,326 @@
 +import { useQueryClient } from "@tanstack/react-query";
 +import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
@@ -195,6 +195,25 @@ index 0000000..62eabe0
 +  const sendInteractiveMessage = async () => {
 +    if (!kind || !canSend || isSending) return;
 +
++    const fallbackText = kind === "buttons"
++      ? [
++          `*${title.trim()}*`,
++          description.trim(),
++          `Opções:\n${buttons.map((label, index) => `${index + 1}. ${label.trim()}`).join("\n")}`,
++          "Responda com o número da opção escolhida.",
++          footer.trim(),
++        ].filter(Boolean).join("\n\n")
++      : kind === "pix"
++      ? [
++          `*${title.trim()}*`,
++          description.trim(),
++          `Recebedor: ${pixName.trim()}`,
++          `Chave Pix (${PIX_KEY_TYPES.find((type) => type.value === pixKeyType)?.label}):\n${pixKey.trim()}`,
++          pixAmount.trim() ? `Valor: R$ ${Number(pixAmount.replace(",", ".")).toFixed(2).replace(".", ",")}` : "",
++          footer.trim(),
++        ].filter(Boolean).join("\n\n")
++      : null;
++
 +    const data = kind === "buttons"
 +      ? {
 +          number: remoteJid,
@@ -236,13 +255,24 @@ index 0000000..62eabe0
 +
 +    try {
 +      setIsSending(true);
-+      await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, {
-+        headers: { apikey: instance.token },
-+      });
++      const headers = { apikey: instance.token };
++      if (fallbackText) {
++        await api.post(`/message/sendText/${instance.name}`, { number: remoteJid, text: fallbackText }, { headers });
++      }
++
++      let interactiveSent = true;
++      try {
++        await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, { headers });
++      } catch (error) {
++        if (!fallbackText) throw error;
++        interactiveSent = false;
++        console.error("Error sending native interactive message:", error);
++      }
 +      setKind(null);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
-+      toast.success("Mensagem enviada");
++      if (interactiveSent) toast.success(fallbackText ? "Mensagem e cópia em texto enviadas" : "Mensagem enviada");
++      else toast.warn("Texto enviado; o botão interativo não pôde ser enviado");
 +    } catch (error) {
 +      console.error("Error sending interactive message:", error);
 +      toast.error("Não foi possível enviar a mensagem");
@@ -277,7 +307,10 @@ index 0000000..62eabe0
 +      <Dialog open={kind !== null} onOpenChange={(open) => { if (!open && !isSending) setKind(null); }}>
 +        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
 +          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar chave Pix" : "Mensagem com lista"}</DialogTitle>
-+          <DialogDescription>Envie para {remoteJid.split("@")[0]}</DialogDescription>
++          <DialogDescription>
++            Envie para {remoteJid.split("@")[0]}.
++            {kind !== "list" && " Uma cópia em texto acompanha a mensagem para garantir a leitura em todos os dispositivos."}
++          </DialogDescription>
 +
 +          <div className="space-y-4">
 +            <div className="space-y-1">
