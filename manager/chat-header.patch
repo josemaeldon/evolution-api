@@ -108,17 +108,258 @@ index 3888449..41097e2 100644
      );
      if (!search.trim()) return filtered;
      const q = search.toLowerCase();
+diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
+new file mode 100644
+index 0000000..99a91e1
+--- /dev/null
++++ b/src/pages/instance/Chat/interactive-message-composer.tsx
+@@ -0,0 +1,229 @@
++import { useQueryClient } from "@tanstack/react-query";
++import { List, MessageSquareMore, Plus, Trash2 } from "lucide-react";
++import { useState } from "react";
++import { toast } from "react-toastify";
++import { v4 as uuid } from "uuid";
++
++import { Button } from "@evoapi/design-system/button";
++import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
++import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
++import { Input } from "@/components/ui/input";
++import { Textarea } from "@/components/ui/textarea";
++
++import { api } from "@/lib/queries/api";
++
++import { Instance } from "@/types/evolution.types";
++
++type MessageKind = "buttons" | "list" | null;
++type RowDraft = { id: string; title: string; description: string };
++type SectionDraft = { id: string; title: string; rows: RowDraft[] };
++
++const newRow = (): RowDraft => ({ id: uuid(), title: "", description: "" });
++const newSection = (): SectionDraft => ({ id: uuid(), title: "", rows: [newRow()] });
++const MAX_BUTTONS = 3;
++const MAX_LIST_ROWS = 10;
++
++export function InteractiveMessageComposer({ instance, remoteJid }: { instance: Instance; remoteJid: string }) {
++  const queryClient = useQueryClient();
++  const [kind, setKind] = useState<MessageKind>(null);
++  const [isSending, setIsSending] = useState(false);
++  const [title, setTitle] = useState("");
++  const [description, setDescription] = useState("");
++  const [footer, setFooter] = useState("");
++  const [buttonText, setButtonText] = useState("");
++  const [buttons, setButtons] = useState([""]);
++  const [sections, setSections] = useState<SectionDraft[]>([newSection()]);
++
++  const openComposer = (nextKind: Exclude<MessageKind, null>) => {
++    setTitle("");
++    setDescription("");
++    setFooter("");
++    setButtonText("");
++    setButtons([""]);
++    setSections([newSection()]);
++    setKind(nextKind);
++  };
++
++  const totalRows = sections.reduce((count, section) => count + section.rows.length, 0);
++  const validButtons = buttons.every((label) => label.trim()) &&
++    new Set(buttons.map((label) => label.trim().toLowerCase())).size === buttons.length;
++  const validSections = sections.every(
++    (section) => section.title.trim() && section.rows.every((row) => row.title.trim()),
++  );
++  const canSend = !!title.trim() && (kind === "buttons" ? validButtons : !!buttonText.trim() && validSections);
++
++  const updateSection = (sectionId: string, update: (section: SectionDraft) => SectionDraft) => {
++    setSections((current) => current.map((section) => section.id === sectionId ? update(section) : section));
++  };
++
++  const sendInteractiveMessage = async () => {
++    if (!kind || !canSend || isSending) return;
++
++    const data = kind === "buttons"
++      ? {
++          number: remoteJid,
++          title: title.trim(),
++          description: description.trim(),
++          footer: footer.trim(),
++          buttons: buttons.map((label) => ({ type: "reply", displayText: label.trim(), id: uuid() })),
++        }
++      : {
++          number: remoteJid,
++          title: title.trim(),
++          description: description.trim(),
++          footerText: footer.trim(),
++          buttonText: buttonText.trim(),
++          sections: sections.map((section) => ({
++            title: section.title.trim(),
++            rows: section.rows.map((row) => ({
++              title: row.title.trim(),
++              description: row.description.trim(),
++              rowId: row.id,
++            })),
++          })),
++        };
++
++    try {
++      setIsSending(true);
++      await api.post(`/message/${kind === "buttons" ? "sendButtons" : "sendList"}/${instance.name}`, data, {
++        headers: { apikey: instance.token },
++      });
++      setKind(null);
++      queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
++      queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
++      toast.success("Mensagem enviada");
++    } catch (error) {
++      console.error("Error sending interactive message:", error);
++      toast.error("Não foi possível enviar a mensagem");
++    } finally {
++      setIsSending(false);
++    }
++  };
++
++  return (
++    <>
++      <DropdownMenu>
++        <DropdownMenuTrigger asChild>
++          <Button type="button" variant="ghost" size="icon" aria-label="Enviar mensagem interativa" title="Mensagem interativa">
++            <MessageSquareMore className="h-5 w-5" />
++          </Button>
++        </DropdownMenuTrigger>
++        <DropdownMenuContent align="start">
++          <DropdownMenuItem onClick={() => openComposer("buttons")}>
++            <MessageSquareMore className="mr-2 h-4 w-4" /> Botões de resposta
++          </DropdownMenuItem>
++          <DropdownMenuItem onClick={() => openComposer("list")}>
++            <List className="mr-2 h-4 w-4" /> Lista de opções
++          </DropdownMenuItem>
++        </DropdownMenuContent>
++      </DropdownMenu>
++
++      <Dialog open={kind !== null} onOpenChange={(open) => { if (!open && !isSending) setKind(null); }}>
++        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
++          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : "Mensagem com lista"}</DialogTitle>
++          <DialogDescription>Envie para {remoteJid.split("@")[0]}</DialogDescription>
++
++          <div className="space-y-4">
++            <div className="space-y-1">
++              <label htmlFor="interactive-title" className="text-sm font-medium">Título</label>
++              <Input id="interactive-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={1024} />
++            </div>
++            <div className="space-y-1">
++              <label htmlFor="interactive-description" className="text-sm font-medium">Descrição (opcional)</label>
++              <Textarea id="interactive-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} />
++            </div>
++            <div className="space-y-1">
++              <label htmlFor="interactive-footer" className="text-sm font-medium">Rodapé (opcional)</label>
++              <Input id="interactive-footer" value={footer} onChange={(event) => setFooter(event.target.value)} />
++            </div>
++
++            {kind === "buttons" ? (
++              <div className="space-y-2">
++                <p className="text-sm font-medium">Botões de resposta (até 3)</p>
++                {buttons.map((label, index) => (
++                  <div key={index} className="flex gap-2">
++                    <Input aria-label={`Texto do botão ${index + 1}`} placeholder={`Botão ${index + 1}`} value={label}
++                      onChange={(event) => setButtons((current) => current.map((value, i) => i === index ? event.target.value : value))} />
++                    <Button type="button" size="icon" variant="ghost" aria-label={`Remover botão ${index + 1}`}
++                      disabled={buttons.length === 1} onClick={() => setButtons((current) => current.filter((_, i) => i !== index))}>
++                      <Trash2 className="h-4 w-4" />
++                    </Button>
++                  </div>
++                ))}
++                {buttons.length < MAX_BUTTONS && (
++                  <Button type="button" size="sm" variant="outline" onClick={() => setButtons((current) => [...current, ""])}>
++                    <Plus className="mr-1 h-4 w-4" /> Adicionar botão
++                  </Button>
++                )}
++                {!validButtons && buttons.every((label) => label.trim()) && (
++                  <p className="text-xs text-destructive">Os textos dos botões devem ser diferentes.</p>
++                )}
++              </div>
++            ) : (
++              <div className="space-y-4">
++                <div className="space-y-1">
++                  <label htmlFor="interactive-button-text" className="text-sm font-medium">Texto do botão que abre a lista</label>
++                  <Input id="interactive-button-text" value={buttonText} onChange={(event) => setButtonText(event.target.value)} />
++                </div>
++                {sections.map((section, sectionIndex) => (
++                  <div key={section.id} className="space-y-3 rounded-lg border p-3">
++                    <div className="flex items-center gap-2">
++                      <Input aria-label={`Título da seção ${sectionIndex + 1}`} placeholder={`Seção ${sectionIndex + 1}`}
++                        value={section.title} onChange={(event) => updateSection(section.id, (current) => ({ ...current, title: event.target.value }))} />
++                      <Button type="button" size="icon" variant="ghost" aria-label={`Remover seção ${sectionIndex + 1}`}
++                        disabled={sections.length === 1} onClick={() => setSections((current) => current.filter((item) => item.id !== section.id))}>
++                        <Trash2 className="h-4 w-4" />
++                      </Button>
++                    </div>
++                    {section.rows.map((row, rowIndex) => (
++                      <div key={row.id} className="flex gap-2 pl-2">
++                        <div className="min-w-0 flex-1 space-y-2">
++                          <Input aria-label={`Título da opção ${rowIndex + 1} da seção ${sectionIndex + 1}`}
++                            placeholder={`Opção ${rowIndex + 1}`} value={row.title}
++                            onChange={(event) => updateSection(section.id, (current) => ({ ...current,
++                              rows: current.rows.map((item) => item.id === row.id ? { ...item, title: event.target.value } : item),
++                            }))} />
++                          <Input aria-label={`Descrição da opção ${rowIndex + 1} da seção ${sectionIndex + 1}`}
++                            placeholder="Descrição (opcional)" value={row.description} maxLength={72}
++                            onChange={(event) => updateSection(section.id, (current) => ({ ...current,
++                              rows: current.rows.map((item) => item.id === row.id ? { ...item, description: event.target.value } : item),
++                            }))} />
++                        </div>
++                        <Button type="button" size="icon" variant="ghost" aria-label={`Remover opção ${rowIndex + 1}`}
++                          disabled={section.rows.length === 1} onClick={() => updateSection(section.id, (current) => ({
++                            ...current, rows: current.rows.filter((item) => item.id !== row.id),
++                          }))}>
++                          <Trash2 className="h-4 w-4" />
++                        </Button>
++                      </div>
++                    ))}
++                    {totalRows < MAX_LIST_ROWS && (
++                      <Button type="button" size="sm" variant="outline" onClick={() => updateSection(section.id, (current) => ({
++                        ...current, rows: [...current.rows, newRow()],
++                      }))}>
++                        <Plus className="mr-1 h-4 w-4" /> Adicionar opção
++                      </Button>
++                    )}
++                  </div>
++                ))}
++                {totalRows < MAX_LIST_ROWS && (
++                  <Button type="button" size="sm" variant="outline" onClick={() => setSections((current) => [...current, newSection()])}>
++                    <Plus className="mr-1 h-4 w-4" /> Adicionar seção
++                  </Button>
++                )}
++                <p className="text-xs text-muted-foreground">Até {MAX_LIST_ROWS} opções no total.</p>
++              </div>
++            )}
++
++            <div className="flex justify-end gap-2">
++              <Button type="button" variant="outline" disabled={isSending} onClick={() => setKind(null)}>Cancelar</Button>
++              <Button type="button" disabled={!canSend || isSending} onClick={sendInteractiveMessage}>
++                {isSending ? "Enviando..." : "Enviar mensagem"}
++              </Button>
++            </div>
++          </div>
++        </DialogContent>
++      </Dialog>
++    </>
++  );
++}
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..e224380 100644
+index 6331202..1dc4356 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
-@@ -1,4 +1,5 @@
- import { Send, User } from "lucide-react";
+@@ -1,15 +1,18 @@
+-import { Send, User } from "lucide-react";
++import { Send, User, X } from "lucide-react";
 +import { useQuery } from "@tanstack/react-query";
  import { RefObject, useEffect, useMemo, useState } from "react";
  import { useTranslation } from "react-i18next";
  import { useParams } from "react-router-dom";
-@@ -10,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
+ 
+ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
+ import { Button } from "@evoapi/design-system/button";
++import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+ import { Textarea } from "@/components/ui/textarea";
+ 
  import { useInstance } from "@/contexts/InstanceContext";
  
  import { useFindChat } from "@/lib/queries/chat/findChat";
@@ -126,10 +367,49 @@ index 6331202..e224380 100644
  import { useFindMessages } from "@/lib/queries/chat/findMessages";
  import { useSendMessage, useSendMedia } from "@/lib/queries/chat/sendMessage";
  import { getToken, TOKEN_ID } from "@/lib/queries/token";
-@@ -149,6 +151,49 @@ const getMessageText = (messageObj: any): string => {
+@@ -21,6 +24,7 @@ import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
+ // Import components from EmbedChatMessage for attachment functionality
+ import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
+ import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
++import { InteractiveMessageComposer } from "./interactive-message-composer";
+ 
+ type MessagesProps = {
+   textareaRef: RefObject<HTMLTextAreaElement>;
+@@ -149,6 +153,80 @@ const getMessageText = (messageObj: any): string => {
    return String(messageObj);
  };
  
++const InteractiveContent = ({ message }: { message: Message }) => {
++  const content = message.message.viewOnceMessage?.message?.interactiveMessage ||
++    message.message.interactiveMessage || message.message.buttonMessage || message.message.listMessage;
++  if (!content) return <span>Mensagem interativa</span>;
++
++  const body = content.body?.text || [content.title, content.description].filter(Boolean).join("\n\n");
++  const buttons = content.nativeFlowMessage?.buttons || content.buttons || [];
++
++  return (
++    <div className="min-w-40 space-y-2">
++      {body && <p className="whitespace-pre-wrap">{body}</p>}
++      {(content.footer?.text || content.footerText) && (
++        <p className="text-xs opacity-70">{content.footer?.text || content.footerText}</p>
++      )}
++      {buttons.map((button: any, index: number) => {
++        let params: any = {};
++        try {
++          params = button.buttonParamsJson ? JSON.parse(button.buttonParamsJson) : button;
++        } catch {
++          params = button;
++        }
++        const label = params.displayText || params.title || button.reply?.title || content.buttonText;
++        return <div key={index} className="border-t border-current/15 pt-2 text-center text-sm font-medium">{label}</div>;
++      })}
++      {!buttons.length && content.buttonText && (
++        <div className="border-t border-current/15 pt-2 text-center text-sm font-medium">{content.buttonText}</div>
++      )}
++    </div>
++  );
++};
++
 +const ImageContent = ({ message }: { message: Message }) => {
 +  const { instance } = useInstance();
 +  const imageBase64 = message.message.base64;
@@ -176,7 +456,7 @@ index 6331202..e224380 100644
  // Component to render different message types based on messageType
  const MessageContent = ({ message }: { message: Message }) => {
    const messageType = message.messageType as string;
-@@ -198,34 +243,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -198,34 +276,7 @@ const MessageContent = ({ message }: { message: Message }) => {
        return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
  
      case "imageMessage":
@@ -212,7 +492,20 @@ index 6331202..e224380 100644
  
      case "videoMessage":
        // Use base64 data or mediaUrl for videos
-@@ -417,6 +435,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -287,6 +338,12 @@ const MessageContent = ({ message }: { message: Message }) => {
+     case "stickerMessage":
+       return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
+ 
++    case "viewOnceMessage":
++    case "interactiveMessage":
++    case "buttonMessage":
++    case "listMessage":
++      return <InteractiveContent message={message} />;
++
+     default:
+       // Fallback for unknown message types
+       return (
+@@ -417,6 +474,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      instanceName: instance?.name,
    });
  
@@ -235,7 +528,7 @@ index 6331202..e224380 100644
    const { data: messages, isSuccess } = useFindMessages({
      remoteJid,
      instanceName: instance?.name,
-@@ -613,15 +647,15 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -613,19 +686,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
@@ -243,17 +536,53 @@ index 6331202..e224380 100644
 -  const headerSub = chat?.remoteJid?.split("@")[0];
 +  const headerName = chat?.pushName || remoteJid?.split("@")[0];
 +  const headerSub = remoteJid?.split("@")[0];
++  const profilePictureUrl = currentProfilePictureUrl || chat?.profilePicUrl;
++  const avatar = (
++    <Avatar className="h-10 w-10">
++      <AvatarImage src={profilePictureUrl || undefined} alt={headerName} />
++      <AvatarFallback className="bg-muted text-muted-foreground">
++        <User className="h-5 w-5" />
++      </AvatarFallback>
++    </Avatar>
++  );
  
    return (
      <div className="flex h-full flex-col bg-muted/10">
        <div className="flex-shrink-0 border-b bg-background/95 p-4 backdrop-blur-sm">
          <div className="flex items-center gap-3">
-           <Avatar className="h-10 w-10">
+-          <Avatar className="h-10 w-10">
 -            <AvatarImage src={chat?.profilePicUrl} alt={headerName} />
-+            <AvatarImage src={currentProfilePictureUrl || chat?.profilePicUrl || undefined} alt={headerName} />
-             <AvatarFallback className="bg-muted text-muted-foreground">
-               <User className="h-5 w-5" />
-             </AvatarFallback>
+-            <AvatarFallback className="bg-muted text-muted-foreground">
+-              <User className="h-5 w-5" />
+-            </AvatarFallback>
+-          </Avatar>
++          {profilePictureUrl ? (
++            <Dialog>
++              <DialogTrigger asChild>
++                <button type="button" className="cursor-zoom-in rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Ampliar foto de ${headerName}`} title="Ampliar foto">
++                  {avatar}
++                </button>
++              </DialogTrigger>
++              <DialogContent showCloseButton={false} className="w-auto max-w-[95vw] gap-0 border-0 bg-transparent p-0 shadow-none sm:max-w-[95vw]">
++                <DialogTitle className="sr-only">Foto de {headerName}</DialogTitle>
++                <img src={profilePictureUrl} alt={`Foto de ${headerName}`} className="max-h-[85vh] max-w-[95vw] rounded-lg object-contain" />
++                <DialogClose className="absolute right-2 top-2 rounded-full bg-black/70 p-2 text-white hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Fechar imagem">
++                  <X className="h-5 w-5" />
++                </DialogClose>
++              </DialogContent>
++            </Dialog>
++          ) : avatar}
+           <div className="min-w-0 flex-1">
+             <h3 className="truncate font-semibold">{headerName}</h3>
+             <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
+@@ -653,6 +745,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+           <div className="flex items-center gap-2 px-2 py-1.5">
+             <div className="flex flex-shrink-0 items-center">
+               {instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}
++              {instance && remoteJid && <InteractiveMessageComposer key={remoteJid} instance={instance} remoteJid={remoteJid} />}
+             </div>
+             <Textarea
+               placeholder={t("chat.input.placeholder", { defaultValue: "Digite uma mensagem..." })}
 diff --git a/src/pages/instance/EmbedChatMessage/index.tsx b/src/pages/instance/EmbedChatMessage/index.tsx
 index b65d6d5..e7b30f4 100644
 --- a/src/pages/instance/EmbedChatMessage/index.tsx
