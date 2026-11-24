@@ -1,6 +1,7 @@
 import {
   ArchiveChatDto,
   BlockUserDto,
+  ChatRemoteJidDto,
   DeleteMessage,
   getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
@@ -10,6 +11,7 @@ import {
   ProfilePictureDto,
   ProfileStatusDto,
   ReadMessageDto,
+  SaveContactDto,
   SendPresenceDto,
   UpdateMessageDto,
   WhatsAppNumberDto,
@@ -52,6 +54,18 @@ export class ChatController {
 
   public async fetchContacts({ instanceName }: InstanceDto, query: Query<Contact>) {
     return await this.waMonitor.waInstances[instanceName].fetchContacts(query);
+  }
+
+  public async saveContact({ instanceName }: InstanceDto, data: SaveContactDto) {
+    return this.waMonitor.waInstances[instanceName].saveContact(data.remoteJid, data.name);
+  }
+
+  public async deleteContact({ instanceName }: InstanceDto, data: ChatRemoteJidDto) {
+    return this.waMonitor.waInstances[instanceName].deleteContact(data.remoteJid);
+  }
+
+  public async deleteConversation({ instanceName }: InstanceDto, data: ChatRemoteJidDto) {
+    return this.waMonitor.waInstances[instanceName].deleteConversation(data.remoteJid);
   }
 
   public async getBase64FromMediaMessage({ instanceName }: InstanceDto, data: getBase64FromMediaMessageDto) {

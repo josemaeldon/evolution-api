@@ -64,19 +64,87 @@ index 0d59190..85828b3 100644
              break;
            }
 diff --git a/src/pages/instance/Chat/index.tsx b/src/pages/instance/Chat/index.tsx
-index 3888449..41097e2 100644
+index 3888449..18de278 100644
 --- a/src/pages/instance/Chat/index.tsx
 +++ b/src/pages/instance/Chat/index.tsx
-@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avata
+@@ -1,15 +1,20 @@
+ import "./style.css";
+ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
  import { Button } from "@evoapi/design-system/button";
++import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
++import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
  import { Input } from "@/components/ui/input";
- import { ArrowLeft, MessageCircle, Search, User, Users } from "lucide-react";
+-import { ArrowLeft, MessageCircle, Search, User, Users } from "lucide-react";
 -import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { useQuery, useQueryClient } from "@tanstack/react-query";
++import { ArrowLeft, ContactRound, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
 +import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  import { useTranslation } from "react-i18next";
  import { useNavigate, useParams } from "react-router-dom";
++import { toast } from "react-toastify";
  
-@@ -67,12 +67,17 @@ function Chat() {
+ import { useInstance } from "@/contexts/InstanceContext";
+ 
+ import { useFindChats } from "@/lib/queries/chat/findChats";
++import { api } from "@/lib/queries/api";
+ import { getToken, TOKEN_ID } from "@/lib/queries/token";
+ import { cn } from "@/lib/utils";
+ 
+@@ -24,9 +29,12 @@ import { Messages } from "./messages";
+ const formatJid = (remoteJid: string): string => remoteJid.split("@")[0];
+ 
+ type ChatKind = "contacts" | "groups";
++type ContactFormMode = "contact" | "conversation" | "edit" | null;
++type ManagedContact = { remoteJid: string; pushName?: string; profilePicUrl?: string };
+ 
+ function Chat() {
+   const { t } = useTranslation();
++  const queryClient = useQueryClient();
+   const isMD = useMediaQuery("(min-width: 768px)");
+   const lastMessageRef = useRef<HTMLDivElement | null>(null);
+   const [textareaHeight] = useState("auto");
+@@ -36,8 +44,19 @@ function Chat() {
+   const [realtimeChats, setRealtimeChats] = useState<ChatType[]>([]);
+   const [search, setSearch] = useState("");
+   const [kind, setKind] = useState<ChatKind>("contacts");
++  const [contactsOpen, setContactsOpen] = useState(false);
++  const [contactFormMode, setContactFormMode] = useState<ContactFormMode>(null);
++  const [contactNumber, setContactNumber] = useState("");
++  const [contactName, setContactName] = useState("");
++  const [savingContact, setSavingContact] = useState(false);
+ 
+   const { data: chats } = useFindChats({ instanceName: instance?.name });
++  const { data: contacts = [] } = useQuery<ManagedContact[]>({
++    queryKey: ["chats", "findContacts", instance?.name],
++    queryFn: async () => (await api.post(`/chat/findContacts/${instance?.name}`, { where: {} },
++      { headers: { apikey: instance?.token } })).data,
++    enabled: !!instance?.name,
++  });
+ 
+   const allChats = useMemo(() => {
+     if (!chats) return realtimeChats;
+@@ -45,10 +64,18 @@ function Chat() {
+     chats.forEach((c) => map.set(c.remoteJid, c));
+     realtimeChats.forEach((c) => {
+       const existing = map.get(c.remoteJid);
+-      map.set(c.remoteJid, existing ? { ...existing, ...c } : c);
++      map.set(c.remoteJid, existing ? { ...c, ...existing, profilePicUrl: existing.profilePicUrl || c.profilePicUrl } : c);
++    });
++    contacts.forEach((contact) => {
++      const existing = map.get(contact.remoteJid);
++      if (existing) map.set(contact.remoteJid, {
++        ...existing,
++        pushName: contact.pushName || existing.pushName,
++        profilePicUrl: contact.profilePicUrl || existing.profilePicUrl,
++      });
+     });
+     return Array.from(map.values());
+-  }, [chats, realtimeChats]);
++  }, [chats, realtimeChats, contacts]);
+ 
+   const { instanceId, remoteJid } = useParams<{ instanceId: string; remoteJid: string }>();
+   const navigate = useNavigate();
+@@ -67,12 +94,17 @@ function Chat() {
  
        setRealtimeChats((prev) => {
          const idx = prev.findIndex((c) => c.remoteJid === jid);
@@ -95,8 +163,83 @@ index 3888449..41097e2 100644
          };
          if (idx !== -1) {
            const next = [...prev];
-@@ -113,8 +118,10 @@ function Chat() {
+@@ -111,10 +143,85 @@ function Chat() {
  
+   const handleBack = () => navigate(`/manager/instance/${instanceId}/chat`);
+ 
++  const refreshChats = () => {
++    queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
++    queryClient.invalidateQueries({ queryKey: ["chats", "findContacts"] }).catch(console.error);
++    queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
++  };
++
++  const openContactForm = (mode: Exclude<ContactFormMode, null>, contact?: ManagedContact) => {
++    setContactsOpen(false);
++    setContactFormMode(mode);
++    setContactNumber(contact?.remoteJid.split("@")[0] || "");
++    setContactName(contact?.pushName || "");
++  };
++
++  const saveContact = async () => {
++    if (!instance || !contactFormMode || savingContact) return;
++    const digits = contactNumber.replace(/\D/g, "");
++    if (digits.length < 8 || digits.length > 15) {
++      toast.error("Informe o telefone com DDI e DDD");
++      return;
++    }
++    if (contactFormMode !== "conversation" && !contactName.trim()) {
++      toast.error("Informe o nome do contato");
++      return;
++    }
++    try {
++      setSavingContact(true);
++      const response = await api.post(`/chat/saveContact/${instance.name}`,
++        { remoteJid: contactFormMode === "edit" ? `${digits}@s.whatsapp.net` : digits,
++          name: contactName.trim() || digits }, { headers: { apikey: instance.token } });
++      setContactFormMode(null);
++      refreshChats();
++      if (contactFormMode === "conversation") handleChat(response.data.remoteJid);
++      else toast.success(contactFormMode === "edit" ? "Contato atualizado" : "Contato adicionado");
++    } catch (error) {
++      console.error("Error saving contact:", error);
++      toast.error("Não foi possível salvar o contato");
++    } finally {
++      setSavingContact(false);
++    }
++  };
++
++  const deleteContact = async (jid: string) => {
++    if (!instance || !window.confirm("Excluir este contato? As mensagens da conversa serão mantidas.")) return;
++    try {
++      await api.delete(`/chat/deleteContact/${instance.name}`,
++        { data: { remoteJid: jid }, headers: { apikey: instance.token } });
++      refreshChats();
++      toast.success("Contato excluído");
++    } catch (error) {
++      console.error("Error deleting contact:", error);
++      toast.error("Não foi possível excluir o contato");
++    }
++  };
++
++  const deleteConversation = async () => {
++    if (!instance || !remoteJid || !window.confirm("Excluir esta conversa e suas mensagens desta instância?")) return;
++    try {
++      await api.delete(`/chat/deleteConversation/${instance.name}`,
++        { data: { remoteJid }, headers: { apikey: instance.token } });
++      setRealtimeChats((current) => current.filter((chat) => chat.remoteJid !== remoteJid));
++      refreshChats();
++      handleBack();
++      toast.success("Conversa excluída");
++    } catch (error) {
++      console.error("Error deleting conversation:", error);
++      toast.error("Não foi possível excluir a conversa");
++    }
++  };
++
++  const selectedContact = contacts.find((contact) => contact.remoteJid === remoteJid);
++  const contactList = contacts.filter((contact) => contact.remoteJid.endsWith("@s.whatsapp.net"))
++    .sort((a, b) => (a.pushName || a.remoteJid).localeCompare(b.pushName || b.remoteJid));
++
    const visibleChats = useMemo(() => {
      const isContacts = kind === "contacts";
 -    const filtered = allChats.filter((c) =>
@@ -108,12 +251,149 @@ index 3888449..41097e2 100644
      );
      if (!search.trim()) return filtered;
      const q = search.toLowerCase();
+@@ -137,15 +244,25 @@ function Chat() {
+         )}
+       >
+         <div className="space-y-3 border-b p-4">
+-          <div className="relative">
+-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+-            <Input
+-              type="search"
+-              placeholder={t("chat.search")}
+-              value={search}
+-              onChange={(e) => setSearch(e.target.value)}
+-              className="pl-9"
+-            />
++          <div className="flex items-center gap-2">
++            <div className="relative min-w-0 flex-1">
++              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
++              <Input
++                type="search"
++                placeholder={t("chat.search")}
++                value={search}
++                onChange={(e) => setSearch(e.target.value)}
++                className="pl-9"
++              />
++            </div>
++            <Button type="button" size="icon" variant="outline" title="Iniciar conversa" aria-label="Iniciar conversa"
++              onClick={() => openContactForm("conversation")}>
++              <Plus className="h-4 w-4" />
++            </Button>
++            <Button type="button" size="icon" variant="outline" title="Gerenciar contatos" aria-label="Gerenciar contatos"
++              onClick={() => setContactsOpen(true)}>
++              <ContactRound className="h-4 w-4" />
++            </Button>
+           </div>
+ 
+           <div className="flex items-center gap-2">
+@@ -244,6 +361,28 @@ function Chat() {
+               </div>
+             )}
+             <Messages
++              headerNameOverride={selectedContact?.pushName}
++              headerActions={remoteJid.endsWith("@s.whatsapp.net") && (
++                <DropdownMenu>
++                  <DropdownMenuTrigger asChild>
++                    <Button type="button" size="icon" variant="ghost" aria-label="Ações da conversa">
++                      <MoreVertical className="h-4 w-4" />
++                    </Button>
++                  </DropdownMenuTrigger>
++                  <DropdownMenuContent align="end">
++                    <DropdownMenuItem onClick={() => openContactForm(selectedContact ? "edit" : "contact",
++                      selectedContact || { remoteJid })}>
++                      {selectedContact ? "Editar contato" : "Adicionar contato"}
++                    </DropdownMenuItem>
++                    {selectedContact && <DropdownMenuItem onClick={() => deleteContact(remoteJid)}>
++                      Excluir contato
++                    </DropdownMenuItem>}
++                    <DropdownMenuItem className="text-destructive" onClick={deleteConversation}>
++                      <Trash2 className="mr-2 h-4 w-4" /> Excluir conversa
++                    </DropdownMenuItem>
++                  </DropdownMenuContent>
++                </DropdownMenu>
++              )}
+               textareaRef={textareaRef}
+               handleTextareaChange={handleTextareaChange}
+               textareaHeight={textareaHeight}
+@@ -265,6 +404,72 @@ function Chat() {
+           </div>
+         )}
+       </main>
++
++      <Dialog open={contactsOpen} onOpenChange={setContactsOpen}>
++        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
++          <DialogTitle>Gerenciar contatos</DialogTitle>
++          <DialogDescription>Contatos salvos nesta instância.</DialogDescription>
++          <Button type="button" size="sm" className="w-fit" onClick={() => openContactForm("contact")}>
++            <Plus className="mr-2 h-4 w-4" /> Adicionar contato
++          </Button>
++          <div className="space-y-2">
++            {contactList.length === 0 && <p className="text-sm text-muted-foreground">Nenhum contato encontrado.</p>}
++            {contactList.map((contact) => (
++              <div key={contact.remoteJid} className="flex items-center gap-2 rounded-md border p-2">
++                <Avatar className="h-9 w-9 flex-shrink-0">
++                  <AvatarImage src={contact.profilePicUrl} alt={contact.pushName || formatJid(contact.remoteJid)} />
++                  <AvatarFallback><User className="h-4 w-4" /></AvatarFallback>
++                </Avatar>
++                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => {
++                  setContactsOpen(false);
++                  handleChat(contact.remoteJid);
++                }}>
++                  <span className="block truncate text-sm font-medium">{contact.pushName || formatJid(contact.remoteJid)}</span>
++                  <span className="block truncate text-xs text-muted-foreground">{formatJid(contact.remoteJid)}</span>
++                </button>
++                <Button type="button" size="sm" variant="ghost" onClick={() => openContactForm("edit", contact)}>
++                  Editar
++                </Button>
++                <Button type="button" size="icon" variant="ghost" aria-label={`Excluir ${contact.pushName || contact.remoteJid}`}
++                  onClick={() => deleteContact(contact.remoteJid)}>
++                  <Trash2 className="h-4 w-4" />
++                </Button>
++              </div>
++            ))}
++          </div>
++        </DialogContent>
++      </Dialog>
++
++      <Dialog open={contactFormMode !== null} onOpenChange={(open) => { if (!open && !savingContact) setContactFormMode(null); }}>
++        <DialogContent className="sm:max-w-md">
++          <DialogTitle>{contactFormMode === "conversation" ? "Iniciar conversa" :
++            contactFormMode === "edit" ? "Editar contato" : "Adicionar contato"}</DialogTitle>
++          <DialogDescription>Informe o telefone com código do país e DDD.</DialogDescription>
++          <div className="space-y-3">
++            <div className="space-y-1">
++              <label htmlFor="contact-number" className="text-sm font-medium">Telefone</label>
++              <Input id="contact-number" type="tel" placeholder="5591999999999" value={contactNumber}
++                disabled={contactFormMode === "edit" || savingContact}
++                onChange={(event) => setContactNumber(event.target.value)} />
++            </div>
++            <div className="space-y-1">
++              <label htmlFor="contact-name" className="text-sm font-medium">
++                Nome {contactFormMode === "conversation" ? "(opcional)" : ""}
++              </label>
++              <Input id="contact-name" value={contactName} disabled={savingContact}
++                onChange={(event) => setContactName(event.target.value)} maxLength={100} />
++            </div>
++          </div>
++          <div className="flex justify-end gap-2">
++            <Button type="button" variant="outline" disabled={savingContact} onClick={() => setContactFormMode(null)}>
++              Cancelar
++            </Button>
++            <Button type="button" disabled={savingContact} onClick={saveContact}>
++              {contactFormMode === "conversation" ? "Abrir conversa" : "Salvar"}
++            </Button>
++          </div>
++        </DialogContent>
++      </Dialog>
+     </div>
+   );
+ }
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..7456b4b
+index 0000000..7c3bd78
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,331 @@
 +import { useQueryClient } from "@tanstack/react-query";
 +import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
@@ -147,6 +427,42 @@ index 0000000..7456b4b
 +  { value: "random", label: "Chave aleatória" },
 +];
 +
++const pixText = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
++  .replace(/[^a-zA-Z0-9 /.-]/g, "").trim().replace(/\s+/g, " ").toUpperCase();
++const pixField = (id: string, value: string) => `${id}${String(value.length).padStart(2, "0")}${value}`;
++
++function pixCopyAndPaste(keyType: PixKeyType, keyInput: string, nameInput: string, cityInput: string,
++  amountInput: string, descriptionInput: string): string | null {
++  const digits = keyInput.replace(/\D/g, "");
++  const key = keyType === "cpf" || keyType === "cnpj" ? digits
++    : keyType === "phone" ? `+${digits.startsWith("55") ? digits : `55${digits}`}` : keyInput.trim();
++  const validKey = keyType === "cpf" ? /^\d{11}$/.test(key)
++    : keyType === "cnpj" ? /^\d{14}$/.test(key)
++    : keyType === "phone" ? /^\+55\d{10,11}$/.test(key)
++    : keyType === "email" ? /^[\x21-\x7E]+@[\x21-\x7E]+\.[a-zA-Z]{2,}$/.test(key)
++    : /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/.test(key);
++  const name = pixText(nameInput);
++  const city = pixText(cityInput);
++  const description = pixText(descriptionInput);
++  const amount = amountInput.trim().replace(",", ".");
++  if (!validKey || !name || name.length > 25 || !city || city.length > 15 ||
++    !/^\d{1,10}(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) return null;
++
++  const account = pixField("00", "br.gov.bcb.pix") + pixField("01", key) +
++    (description ? pixField("02", description) : "");
++  if (account.length > 99) return null;
++
++  const payload = pixField("00", "01") + pixField("26", account) + pixField("52", "0000") +
++    pixField("53", "986") + pixField("54", Number(amount).toFixed(2)) + pixField("58", "BR") +
++    pixField("59", name) + pixField("60", city) + pixField("62", pixField("05", "***")) + "6304";
++  let crc = 0xffff;
++  for (const character of payload) {
++    crc ^= character.charCodeAt(0) << 8;
++    for (let bit = 0; bit < 8; bit++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
++  }
++  return payload + crc.toString(16).toUpperCase().padStart(4, "0");
++}
++
 +export function InteractiveMessageComposer({ instance, remoteJid }: { instance: Instance; remoteJid: string }) {
 +  const queryClient = useQueryClient();
 +  const [kind, setKind] = useState<MessageKind>(null);
@@ -161,9 +477,10 @@ index 0000000..7456b4b
 +  const [pixKeyType, setPixKeyType] = useState<PixKeyType>("phone");
 +  const [pixKey, setPixKey] = useState("");
 +  const [pixAmount, setPixAmount] = useState("");
++  const [pixCity, setPixCity] = useState("");
 +
 +  const openComposer = (nextKind: Exclude<MessageKind, null>) => {
-+    setTitle(nextKind === "pix" ? "Pagamento via Pix" : "");
++    setTitle("");
 +    setDescription("");
 +    setFooter("");
 +    setButtonText("");
@@ -173,6 +490,7 @@ index 0000000..7456b4b
 +    setPixKeyType("phone");
 +    setPixKey("");
 +    setPixAmount("");
++    setPixCity("");
 +    setKind(nextKind);
 +  };
 +
@@ -182,10 +500,10 @@ index 0000000..7456b4b
 +  const validSections = sections.every(
 +    (section) => section.title.trim() && section.rows.every((row) => row.title.trim()),
 +  );
-+  const validPixAmount = !pixAmount.trim() || (/^\d+(?:[.,]\d{1,2})?$/.test(pixAmount.trim()) &&
-+    Number(pixAmount.replace(",", ".")) > 0);
-+  const canSend = !!title.trim() && (kind === "buttons" ? validButtons : kind === "pix"
-+    ? !!pixName.trim() && !!pixKey.trim() && validPixAmount
++  const validPixAmount = /^\d{1,10}(?:[.,]\d{1,2})?$/.test(pixAmount.trim()) &&
++    Number(pixAmount.replace(",", ".")) > 0;
++  const pixCode = kind === "pix" ? pixCopyAndPaste(pixKeyType, pixKey, pixName, pixCity, pixAmount, description) : null;
++  const canSend = kind === "pix" ? !!pixCode : !!title.trim() && (kind === "buttons" ? validButtons
 +    : !!buttonText.trim() && validSections);
 +
 +  const updateSection = (sectionId: string, update: (section: SectionDraft) => SectionDraft) => {
@@ -195,30 +513,6 @@ index 0000000..7456b4b
 +  const sendInteractiveMessage = async () => {
 +    if (!kind || !canSend || isSending) return;
 +
-+    const pixAmountLabel = pixAmount.trim()
-+      ? `Valor: R$ ${Number(pixAmount.replace(",", ".")).toFixed(2).replace(".", ",")}`
-+      : "";
-+    const pixDescription = [description.trim(), `Recebedor: ${pixName.trim()}`, pixAmountLabel]
-+      .filter(Boolean).join("\n\n");
-+    const fallbackText = kind === "buttons"
-+      ? [
-+          `*${title.trim()}*`,
-+          description.trim(),
-+          `Opções:\n${buttons.map((label, index) => `${index + 1}. ${label.trim()}`).join("\n")}`,
-+          "Responda com o número da opção escolhida.",
-+          footer.trim(),
-+        ].filter(Boolean).join("\n\n")
-+      : kind === "pix"
-+      ? [
-+          `*${title.trim()}*`,
-+          description.trim(),
-+          `Recebedor: ${pixName.trim()}`,
-+          `Chave Pix (${PIX_KEY_TYPES.find((type) => type.value === pixKeyType)?.label}):\n${pixKey.trim()}`,
-+          pixAmountLabel,
-+          footer.trim(),
-+        ].filter(Boolean).join("\n\n")
-+      : null;
-+
 +    const data = kind === "buttons"
 +      ? {
 +          number: remoteJid,
@@ -226,18 +520,6 @@ index 0000000..7456b4b
 +          description: description.trim(),
 +          footer: footer.trim(),
 +          buttons: buttons.map((label) => ({ type: "reply", displayText: label.trim(), id: uuid() })),
-+        }
-+      : kind === "pix"
-+      ? {
-+          number: remoteJid,
-+          title: title.trim(),
-+          description: pixDescription,
-+          footer: footer.trim(),
-+          buttons: [{
-+            type: "copy",
-+            displayText: "Copiar chave Pix",
-+            copyCode: pixKey.trim(),
-+          }],
 +        }
 +      : {
 +          number: remoteJid,
@@ -258,23 +540,15 @@ index 0000000..7456b4b
 +    try {
 +      setIsSending(true);
 +      const headers = { apikey: instance.token };
-+      if (fallbackText) {
-+        await api.post(`/message/sendText/${instance.name}`, { number: remoteJid, text: fallbackText }, { headers });
-+      }
-+
-+      let interactiveSent = true;
-+      try {
++      if (kind === "pix") {
++        await api.post(`/message/sendText/${instance.name}`, { number: remoteJid, text: pixCode }, { headers });
++      } else {
 +        await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, { headers });
-+      } catch (error) {
-+        if (!fallbackText) throw error;
-+        interactiveSent = false;
-+        console.error("Error sending native interactive message:", error);
 +      }
 +      setKind(null);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
 +      queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
-+      if (interactiveSent) toast.success(fallbackText ? "Mensagem e cópia em texto enviadas" : "Mensagem enviada");
-+      else toast.warn("Texto enviado; o botão interativo não pôde ser enviado");
++      toast.success(kind === "pix" ? "Pix Copia e Cola enviado" : "Mensagem enviada");
 +    } catch (error) {
 +      console.error("Error sending interactive message:", error);
 +      toast.error("Não foi possível enviar a mensagem");
@@ -300,7 +574,7 @@ index 0000000..7456b4b
 +          </DropdownMenuItem>
 +          {instance.integration === "WHATSAPP-BAILEYS" && (
 +            <DropdownMenuItem onClick={() => openComposer("pix")}>
-+              <QrCode className="mr-2 h-4 w-4" /> Chave Pix
++              <QrCode className="mr-2 h-4 w-4" /> Pix Copia e Cola
 +            </DropdownMenuItem>
 +          )}
 +        </DropdownMenuContent>
@@ -308,25 +582,25 @@ index 0000000..7456b4b
 +
 +      <Dialog open={kind !== null} onOpenChange={(open) => { if (!open && !isSending) setKind(null); }}>
 +        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-+          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar chave Pix" : "Mensagem com lista"}</DialogTitle>
++          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar Pix Copia e Cola" : "Mensagem com lista"}</DialogTitle>
 +          <DialogDescription>
 +            Envie para {remoteJid.split("@")[0]}.
-+            {kind !== "list" && " Uma cópia em texto acompanha a mensagem para garantir a leitura em todos os dispositivos."}
++            {kind === "pix" && " O contato poderá copiar a mensagem inteira e colar no aplicativo do banco."}
 +          </DialogDescription>
 +
 +          <div className="space-y-4">
-+            <div className="space-y-1">
++            {kind !== "pix" && <div className="space-y-1">
 +              <label htmlFor="interactive-title" className="text-sm font-medium">Título</label>
 +              <Input id="interactive-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={1024} />
-+            </div>
++            </div>}
 +            <div className="space-y-1">
-+              <label htmlFor="interactive-description" className="text-sm font-medium">Descrição (opcional)</label>
++              <label htmlFor="interactive-description" className="text-sm font-medium">{kind === "pix" ? "Descrição do pagamento (opcional)" : "Descrição (opcional)"}</label>
 +              <Textarea id="interactive-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} />
 +            </div>
-+            <div className="space-y-1">
++            {kind !== "pix" && <div className="space-y-1">
 +              <label htmlFor="interactive-footer" className="text-sm font-medium">Rodapé (opcional)</label>
 +              <Input id="interactive-footer" value={footer} onChange={(event) => setFooter(event.target.value)} />
-+            </div>
++            </div>}
 +
 +            {kind === "buttons" ? (
 +              <div className="space-y-2">
@@ -357,6 +631,10 @@ index 0000000..7456b4b
 +                  <Input id="pix-name" value={pixName} onChange={(event) => setPixName(event.target.value)} />
 +                </div>
 +                <div className="space-y-1">
++                  <label htmlFor="pix-city" className="text-sm font-medium">Cidade do recebedor</label>
++                  <Input id="pix-city" value={pixCity} onChange={(event) => setPixCity(event.target.value)} />
++                </div>
++                <div className="space-y-1">
 +                  <label htmlFor="pix-key-type" className="text-sm font-medium">Tipo de chave</label>
 +                  <select id="pix-key-type" value={pixKeyType} onChange={(event) => setPixKeyType(event.target.value as PixKeyType)}
 +                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
@@ -368,11 +646,16 @@ index 0000000..7456b4b
 +                  <Input id="pix-key" value={pixKey} onChange={(event) => setPixKey(event.target.value)} />
 +                </div>
 +                <div className="space-y-1">
-+                  <label htmlFor="pix-amount" className="text-sm font-medium">Valor em reais (opcional)</label>
++                  <label htmlFor="pix-amount" className="text-sm font-medium">Valor em reais</label>
 +                  <Input id="pix-amount" inputMode="decimal" placeholder="0,00" value={pixAmount}
 +                    onChange={(event) => setPixAmount(event.target.value)} aria-invalid={!validPixAmount} />
 +                  {!validPixAmount && <p className="text-xs text-destructive">Informe um valor positivo com até duas casas decimais.</p>}
 +                </div>
++                {pixName && pixCity && pixKey && validPixAmount && !pixCode &&
++                  <p className="text-xs text-destructive">Confira a chave e o tamanho do nome, cidade e descrição.</p>}
++                {pixCode && <p className="break-all rounded-md border p-2 text-xs text-muted-foreground">
++                  Prévia do código: {pixCode}
++                </p>}
 +              </div>
 +            ) : (
 +              <div className="space-y-4">
@@ -443,14 +726,15 @@ index 0000000..7456b4b
 +  );
 +}
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..7d7c8fa 100644
+index 6331202..348fac2 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
 @@ -1,15 +1,19 @@
 -import { Send, User } from "lucide-react";
+-import { RefObject, useEffect, useMemo, useState } from "react";
 +import { Send, User, X } from "lucide-react";
 +import { useQuery } from "@tanstack/react-query";
- import { RefObject, useEffect, useMemo, useState } from "react";
++import { ReactNode, RefObject, useEffect, useMemo, useState } from "react";
  import { useTranslation } from "react-i18next";
  import { useParams } from "react-router-dom";
 +import { toast } from "react-toastify";
@@ -467,15 +751,19 @@ index 6331202..7d7c8fa 100644
  import { useFindMessages } from "@/lib/queries/chat/findMessages";
  import { useSendMessage, useSendMedia } from "@/lib/queries/chat/sendMessage";
  import { getToken, TOKEN_ID } from "@/lib/queries/token";
-@@ -21,6 +25,7 @@ import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
+@@ -21,8 +25,11 @@ import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
  // Import components from EmbedChatMessage for attachment functionality
  import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
  import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
 +import { InteractiveMessageComposer } from "./interactive-message-composer";
  
  type MessagesProps = {
++  headerNameOverride?: string;
++  headerActions?: ReactNode;
    textareaRef: RefObject<HTMLTextAreaElement>;
-@@ -149,6 +154,153 @@ const getMessageText = (messageObj: any): string => {
+   handleTextareaChange: () => void;
+   textareaHeight: string;
+@@ -149,6 +156,153 @@ const getMessageText = (messageObj: any): string => {
    return String(messageObj);
  };
  
@@ -629,7 +917,7 @@ index 6331202..7d7c8fa 100644
  // Component to render different message types based on messageType
  const MessageContent = ({ message }: { message: Message }) => {
    const messageType = message.messageType as string;
-@@ -198,34 +350,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -198,34 +352,7 @@ const MessageContent = ({ message }: { message: Message }) => {
        return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
  
      case "imageMessage":
@@ -665,7 +953,7 @@ index 6331202..7d7c8fa 100644
  
      case "videoMessage":
        // Use base64 data or mediaUrl for videos
-@@ -287,6 +412,18 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -287,6 +414,18 @@ const MessageContent = ({ message }: { message: Message }) => {
      case "stickerMessage":
        return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
  
@@ -684,7 +972,16 @@ index 6331202..7d7c8fa 100644
      default:
        // Fallback for unknown message types
        return (
-@@ -417,6 +554,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -300,7 +439,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+   }
+ };
+ 
+-function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
++function Messages({ headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
+   const { t, i18n } = useTranslation();
+   const locale = i18n.language;
+   const { instance } = useInstance();
+@@ -417,6 +556,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      instanceName: instance?.name,
    });
  
@@ -707,13 +1004,13 @@ index 6331202..7d7c8fa 100644
    const { data: messages, isSuccess } = useFindMessages({
      remoteJid,
      instanceName: instance?.name,
-@@ -613,19 +766,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -613,23 +768,43 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
 -  const headerName = chat?.pushName || chat?.remoteJid?.split("@")[0];
 -  const headerSub = chat?.remoteJid?.split("@")[0];
-+  const headerName = chat?.pushName || remoteJid?.split("@")[0];
++  const headerName = headerNameOverride || chat?.pushName || remoteJid?.split("@")[0];
 +  const headerSub = remoteJid?.split("@")[0];
 +  const profilePictureUrl = currentProfilePictureUrl || chat?.profilePicUrl;
 +  const avatar = (
@@ -754,7 +1051,12 @@ index 6331202..7d7c8fa 100644
            <div className="min-w-0 flex-1">
              <h3 className="truncate font-semibold">{headerName}</h3>
              <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
-@@ -653,6 +825,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+           </div>
++          {headerActions}
+         </div>
+       </div>
+       <div className="flex w-full flex-1 flex-col overflow-y-auto px-4 py-4">
+@@ -653,6 +828,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
            <div className="flex items-center gap-2 px-2 py-1.5">
              <div className="flex flex-shrink-0 items-center">
                {instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}

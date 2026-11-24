@@ -2,6 +2,7 @@ import { RouterBroker } from '@api/abstract/abstract.router';
 import {
   ArchiveChatDto,
   BlockUserDto,
+  ChatRemoteJidDto,
   DeleteMessage,
   getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
@@ -11,6 +12,7 @@ import {
   ProfilePictureDto,
   ProfileStatusDto,
   ReadMessageDto,
+  SaveContactDto,
   SendPresenceDto,
   UpdateMessageDto,
   WhatsAppNumberDto,
@@ -22,6 +24,7 @@ import { Contact, Message, MessageUpdate } from '@prisma/client';
 import {
   archiveChatSchema,
   blockUserSchema,
+  chatRemoteJidSchema,
   contactValidateSchema,
   deleteMessageSchema,
   markChatUnreadSchema,
@@ -34,6 +37,7 @@ import {
   profileSchema,
   profileStatusSchema,
   readMessageSchema,
+  saveContactSchema,
   updateMessageSchema,
   whatsappNumberSchema,
 } from '@validate/validate.schema';
@@ -159,6 +163,33 @@ export class ChatRouter extends RouterBroker {
           execute: (instance, data) => chatController.fetchContacts(instance, data),
         });
 
+        return res.status(HttpStatus.OK).json(response);
+      })
+      .post(this.routerPath('saveContact'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<SaveContactDto>({
+          request: req,
+          schema: saveContactSchema,
+          ClassRef: SaveContactDto,
+          execute: (instance, data) => chatController.saveContact(instance, data),
+        });
+        return res.status(HttpStatus.OK).json(response);
+      })
+      .delete(this.routerPath('deleteContact'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<ChatRemoteJidDto>({
+          request: req,
+          schema: chatRemoteJidSchema,
+          ClassRef: ChatRemoteJidDto,
+          execute: (instance, data) => chatController.deleteContact(instance, data),
+        });
+        return res.status(HttpStatus.OK).json(response);
+      })
+      .delete(this.routerPath('deleteConversation'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<ChatRemoteJidDto>({
+          request: req,
+          schema: chatRemoteJidSchema,
+          ClassRef: ChatRemoteJidDto,
+          execute: (instance, data) => chatController.deleteConversation(instance, data),
+        });
         return res.status(HttpStatus.OK).json(response);
       })
       .post(this.routerPath('findMessages'), ...guards, async (req, res) => {

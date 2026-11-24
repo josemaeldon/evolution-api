@@ -11,7 +11,7 @@ import { eventManager, waMonitor } from '@api/server.module';
 import { Events, wa } from '@api/types/wa.types';
 import { Auth, Chatwoot, ConfigService, HttpServer, Proxy } from '@config/env.config';
 import { Logger } from '@config/logger.config';
-import { NotFoundException } from '@exceptions';
+import { BadRequestException, NotFoundException } from '@exceptions';
 import { Contact, Message, Prisma } from '@prisma/client';
 import { createJid } from '@utils/createJid';
 import { WASocket } from 'baileys';
@@ -526,19 +526,59 @@ export class ChannelStartupService {
     }
 
     const contacts = await this.prismaRepository.contact.findMany(contactFindManyArgs);
-
     return contacts.map((contact) => {
       const remoteJid = contact.remoteJid;
       const isGroup = remoteJid.endsWith('@g.us');
-      const isSaved = !!contact.pushName || !!contact.profilePicUrl;
+      const pushName = contact.customName || contact.pushName;
+      const isSaved = !!pushName || !!contact.profilePicUrl;
       const type = isGroup ? 'group' : isSaved ? 'contact' : 'group_member';
       return {
         ...contact,
+        pushName,
         isGroup,
         isSaved,
         type,
       };
     });
+  }
+
+  private contactJid(value: string) {
+    const input = value.trim();
+    if (!/^\+?[\d\s()-]+(?:@s\.whatsapp\.net)?$/.test(input)) {
+      throw new BadRequestException('Informe um telefone válido com código do país');
+    }
+    const number = input.replace(/@s\.whatsapp\.net$/, '').replace(/[^\d]/g, '');
+    if (!/^\d{8,15}$/.test(number)) {
+      throw new BadRequestException('Informe um telefone válido com código do país');
+    }
+    return input.endsWith('@s.whatsapp.net') ? `${number}@s.whatsapp.net` : createJid(number);
+  }
+
+  public async saveContact(remoteJid: string, name: string) {
+    const jid = this.contactJid(remoteJid);
+    const pushName = name.trim();
+    if (!pushName) throw new BadRequestException('Informe o nome do contato');
+
+    return this.prismaRepository.contact.upsert({
+      where: { remoteJid_instanceId: { remoteJid: jid, instanceId: this.instanceId } },
+      create: { remoteJid: jid, instanceId: this.instanceId, pushName, customName: pushName },
+      update: { customName: pushName },
+    });
+  }
+
+  public async deleteContact(remoteJid: string) {
+    const jid = this.contactJid(remoteJid);
+    await this.prismaRepository.contact.deleteMany({ where: { instanceId: this.instanceId, remoteJid: jid } });
+    return { remoteJid: jid, deleted: true };
+  }
+
+  public async deleteConversation(remoteJid: string) {
+    const jid = this.contactJid(remoteJid);
+    const path = process.env.DATABASE_PROVIDER === 'mysql' ? '$.remoteJid' : ['remoteJid'];
+    await this.prismaRepository.message.deleteMany({
+      where: { instanceId: this.instanceId, key: { path: path as never, equals: jid } },
+    });
+    return { remoteJid: jid, deleted: true };
   }
 
   public cleanMessageData(message: any) {
@@ -748,7 +788,7 @@ export class ChannelStartupService {
           "Message"."key"->>'remoteJid' as "remoteJid",
           CASE 
             WHEN "Message"."key"->>'remoteJid' LIKE '%@g.us' THEN COALESCE("Chat"."name", "Contact"."pushName")
-            ELSE COALESCE("Contact"."pushName", "Message"."pushName")
+            ELSE COALESCE("Contact"."customName", "Contact"."pushName", "Message"."pushName")
           END as "pushName",
           "Contact"."profilePicUrl",
           COALESCE(

@@ -127,3 +127,12 @@ export class BlockUserDto {
   number: string;
   status: 'block' | 'unblock';
 }
+
+export class SaveContactDto {
+  remoteJid: string;
+  name: string;
+}
+
+export class ChatRemoteJidDto {
+  remoteJid: string;
+}

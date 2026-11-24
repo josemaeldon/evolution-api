@@ -202,6 +202,23 @@ export const contactValidateSchema: JSONSchema7 = {
   },
 };
 
+export const saveContactSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    remoteJid: { type: 'string', minLength: 8, maxLength: 100 },
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+  },
+  required: ['remoteJid', 'name'],
+};
+
+export const chatRemoteJidSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: { remoteJid: { type: 'string', minLength: 8, maxLength: 100 } },
+  required: ['remoteJid'],
+};
+
 export const messageValidateSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
