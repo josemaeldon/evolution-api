@@ -110,12 +110,12 @@ index 3888449..41097e2 100644
      const q = search.toLowerCase();
 diff --git a/src/pages/instance/Chat/interactive-message-composer.tsx b/src/pages/instance/Chat/interactive-message-composer.tsx
 new file mode 100644
-index 0000000..99a91e1
+index 0000000..62eabe0
 --- /dev/null
 +++ b/src/pages/instance/Chat/interactive-message-composer.tsx
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,293 @@
 +import { useQueryClient } from "@tanstack/react-query";
-+import { List, MessageSquareMore, Plus, Trash2 } from "lucide-react";
++import { List, MessageSquareMore, Plus, QrCode, Trash2 } from "lucide-react";
 +import { useState } from "react";
 +import { toast } from "react-toastify";
 +import { v4 as uuid } from "uuid";
@@ -130,7 +130,8 @@ index 0000000..99a91e1
 +
 +import { Instance } from "@/types/evolution.types";
 +
-+type MessageKind = "buttons" | "list" | null;
++type MessageKind = "buttons" | "list" | "pix" | null;
++type PixKeyType = "phone" | "email" | "cpf" | "cnpj" | "random";
 +type RowDraft = { id: string; title: string; description: string };
 +type SectionDraft = { id: string; title: string; rows: RowDraft[] };
 +
@@ -138,6 +139,13 @@ index 0000000..99a91e1
 +const newSection = (): SectionDraft => ({ id: uuid(), title: "", rows: [newRow()] });
 +const MAX_BUTTONS = 3;
 +const MAX_LIST_ROWS = 10;
++const PIX_KEY_TYPES: { value: PixKeyType; label: string }[] = [
++  { value: "phone", label: "Telefone" },
++  { value: "email", label: "E-mail" },
++  { value: "cpf", label: "CPF" },
++  { value: "cnpj", label: "CNPJ" },
++  { value: "random", label: "Chave aleatória" },
++];
 +
 +export function InteractiveMessageComposer({ instance, remoteJid }: { instance: Instance; remoteJid: string }) {
 +  const queryClient = useQueryClient();
@@ -149,14 +157,22 @@ index 0000000..99a91e1
 +  const [buttonText, setButtonText] = useState("");
 +  const [buttons, setButtons] = useState([""]);
 +  const [sections, setSections] = useState<SectionDraft[]>([newSection()]);
++  const [pixName, setPixName] = useState("");
++  const [pixKeyType, setPixKeyType] = useState<PixKeyType>("phone");
++  const [pixKey, setPixKey] = useState("");
++  const [pixAmount, setPixAmount] = useState("");
 +
 +  const openComposer = (nextKind: Exclude<MessageKind, null>) => {
-+    setTitle("");
++    setTitle(nextKind === "pix" ? "Pagamento via Pix" : "");
 +    setDescription("");
 +    setFooter("");
 +    setButtonText("");
 +    setButtons([""]);
 +    setSections([newSection()]);
++    setPixName("");
++    setPixKeyType("phone");
++    setPixKey("");
++    setPixAmount("");
 +    setKind(nextKind);
 +  };
 +
@@ -166,7 +182,11 @@ index 0000000..99a91e1
 +  const validSections = sections.every(
 +    (section) => section.title.trim() && section.rows.every((row) => row.title.trim()),
 +  );
-+  const canSend = !!title.trim() && (kind === "buttons" ? validButtons : !!buttonText.trim() && validSections);
++  const validPixAmount = !pixAmount.trim() || (/^\d+(?:[.,]\d{1,2})?$/.test(pixAmount.trim()) &&
++    Number(pixAmount.replace(",", ".")) > 0);
++  const canSend = !!title.trim() && (kind === "buttons" ? validButtons : kind === "pix"
++    ? !!pixName.trim() && !!pixKey.trim() && validPixAmount
++    : !!buttonText.trim() && validSections);
 +
 +  const updateSection = (sectionId: string, update: (section: SectionDraft) => SectionDraft) => {
 +    setSections((current) => current.map((section) => section.id === sectionId ? update(section) : section));
@@ -182,6 +202,21 @@ index 0000000..99a91e1
 +          description: description.trim(),
 +          footer: footer.trim(),
 +          buttons: buttons.map((label) => ({ type: "reply", displayText: label.trim(), id: uuid() })),
++        }
++      : kind === "pix"
++      ? {
++          number: remoteJid,
++          title: title.trim(),
++          description: description.trim(),
++          footer: footer.trim(),
++          buttons: [{
++            type: "pix",
++            name: pixName.trim(),
++            keyType: pixKeyType,
++            key: pixKey.trim(),
++            currency: "BRL",
++            ...(pixAmount.trim() ? { amount: Number(pixAmount.replace(",", ".")) } : {}),
++          }],
 +        }
 +      : {
 +          number: remoteJid,
@@ -201,7 +236,7 @@ index 0000000..99a91e1
 +
 +    try {
 +      setIsSending(true);
-+      await api.post(`/message/${kind === "buttons" ? "sendButtons" : "sendList"}/${instance.name}`, data, {
++      await api.post(`/message/${kind === "list" ? "sendList" : "sendButtons"}/${instance.name}`, data, {
 +        headers: { apikey: instance.token },
 +      });
 +      setKind(null);
@@ -231,12 +266,17 @@ index 0000000..99a91e1
 +          <DropdownMenuItem onClick={() => openComposer("list")}>
 +            <List className="mr-2 h-4 w-4" /> Lista de opções
 +          </DropdownMenuItem>
++          {instance.integration === "WHATSAPP-BAILEYS" && (
++            <DropdownMenuItem onClick={() => openComposer("pix")}>
++              <QrCode className="mr-2 h-4 w-4" /> Chave Pix
++            </DropdownMenuItem>
++          )}
 +        </DropdownMenuContent>
 +      </DropdownMenu>
 +
 +      <Dialog open={kind !== null} onOpenChange={(open) => { if (!open && !isSending) setKind(null); }}>
 +        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-+          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : "Mensagem com lista"}</DialogTitle>
++          <DialogTitle>{kind === "buttons" ? "Mensagem com botões" : kind === "pix" ? "Enviar chave Pix" : "Mensagem com lista"}</DialogTitle>
 +          <DialogDescription>Envie para {remoteJid.split("@")[0]}</DialogDescription>
 +
 +          <div className="space-y-4">
@@ -274,6 +314,30 @@ index 0000000..99a91e1
 +                {!validButtons && buttons.every((label) => label.trim()) && (
 +                  <p className="text-xs text-destructive">Os textos dos botões devem ser diferentes.</p>
 +                )}
++              </div>
++            ) : kind === "pix" ? (
++              <div className="space-y-3">
++                <div className="space-y-1">
++                  <label htmlFor="pix-name" className="text-sm font-medium">Nome do recebedor</label>
++                  <Input id="pix-name" value={pixName} onChange={(event) => setPixName(event.target.value)} />
++                </div>
++                <div className="space-y-1">
++                  <label htmlFor="pix-key-type" className="text-sm font-medium">Tipo de chave</label>
++                  <select id="pix-key-type" value={pixKeyType} onChange={(event) => setPixKeyType(event.target.value as PixKeyType)}
++                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
++                    {PIX_KEY_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
++                  </select>
++                </div>
++                <div className="space-y-1">
++                  <label htmlFor="pix-key" className="text-sm font-medium">Chave Pix</label>
++                  <Input id="pix-key" value={pixKey} onChange={(event) => setPixKey(event.target.value)} />
++                </div>
++                <div className="space-y-1">
++                  <label htmlFor="pix-amount" className="text-sm font-medium">Valor em reais (opcional)</label>
++                  <Input id="pix-amount" inputMode="decimal" placeholder="0,00" value={pixAmount}
++                    onChange={(event) => setPixAmount(event.target.value)} aria-invalid={!validPixAmount} />
++                  {!validPixAmount && <p className="text-xs text-destructive">Informe um valor positivo com até duas casas decimais.</p>}
++                </div>
 +              </div>
 +            ) : (
 +              <div className="space-y-4">
@@ -344,7 +408,7 @@ index 0000000..99a91e1
 +  );
 +}
 diff --git a/src/pages/instance/Chat/messages.tsx b/src/pages/instance/Chat/messages.tsx
-index 6331202..1dc4356 100644
+index 6331202..5200e38 100644
 --- a/src/pages/instance/Chat/messages.tsx
 +++ b/src/pages/instance/Chat/messages.tsx
 @@ -1,15 +1,18 @@
@@ -375,7 +439,7 @@ index 6331202..1dc4356 100644
  
  type MessagesProps = {
    textareaRef: RefObject<HTMLTextAreaElement>;
-@@ -149,6 +153,80 @@ const getMessageText = (messageObj: any): string => {
+@@ -149,6 +153,87 @@ const getMessageText = (messageObj: any): string => {
    return String(messageObj);
  };
  
@@ -400,8 +464,15 @@ index 6331202..1dc4356 100644
 +        } catch {
 +          params = button;
 +        }
-+        const label = params.displayText || params.title || button.reply?.title || content.buttonText;
-+        return <div key={index} className="border-t border-current/15 pt-2 text-center text-sm font-medium">{label}</div>;
++        const isPix = button.name === "payment_info";
++        const label = isPix ? "Pagar com Pix" : params.displayText || params.title || button.reply?.title || content.buttonText;
++        const pixKey = isPix ? params.payment_settings?.[0]?.pix_static_code?.key : null;
++        return (
++          <div key={index} className="border-t border-current/15 pt-2 text-center text-sm font-medium">
++            {label}
++            {pixKey && <p className="break-all text-xs font-normal opacity-70">Chave: {pixKey}</p>}
++          </div>
++        );
 +      })}
 +      {!buttons.length && content.buttonText && (
 +        <div className="border-t border-current/15 pt-2 text-center text-sm font-medium">{content.buttonText}</div>
@@ -456,7 +527,7 @@ index 6331202..1dc4356 100644
  // Component to render different message types based on messageType
  const MessageContent = ({ message }: { message: Message }) => {
    const messageType = message.messageType as string;
-@@ -198,34 +276,7 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -198,34 +283,7 @@ const MessageContent = ({ message }: { message: Message }) => {
        return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
  
      case "imageMessage":
@@ -492,7 +563,7 @@ index 6331202..1dc4356 100644
  
      case "videoMessage":
        // Use base64 data or mediaUrl for videos
-@@ -287,6 +338,12 @@ const MessageContent = ({ message }: { message: Message }) => {
+@@ -287,6 +345,12 @@ const MessageContent = ({ message }: { message: Message }) => {
      case "stickerMessage":
        return <img src={message.message.mediaUrl} alt="Sticker" className="max-w-32 max-h-32 object-contain" />;
  
@@ -505,7 +576,7 @@ index 6331202..1dc4356 100644
      default:
        // Fallback for unknown message types
        return (
-@@ -417,6 +474,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -417,6 +481,22 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      instanceName: instance?.name,
    });
  
@@ -528,7 +599,7 @@ index 6331202..1dc4356 100644
    const { data: messages, isSuccess } = useFindMessages({
      remoteJid,
      instanceName: instance?.name,
-@@ -613,19 +686,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -613,19 +693,38 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
      );
    };
  
@@ -575,7 +646,7 @@ index 6331202..1dc4356 100644
            <div className="min-w-0 flex-1">
              <h3 className="truncate font-semibold">{headerName}</h3>
              <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
-@@ -653,6 +745,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
+@@ -653,6 +752,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
            <div className="flex items-center gap-2 px-2 py-1.5">
              <div className="flex flex-shrink-0 items-center">
                {instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}
