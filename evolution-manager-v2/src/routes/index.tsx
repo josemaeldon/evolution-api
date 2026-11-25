@@ -29,6 +29,9 @@ import Login from "@/pages/Login";
 import Home from "@/pages/Home";
 import PaymentPix from "@/pages/PaymentPix";
 import Companies from "@/pages/Companies";
+import Documentation from "@/pages/Documentation";
+import ChatForms from "@/pages/instance/ChatForms";
+import PublicChatForm from "@/pages/PublicChatForm";
 
 const router = createBrowserRouter([
   {
@@ -38,6 +41,10 @@ const router = createBrowserRouter([
   {
     path: "/manager/payment/:token",
     element: <PaymentPix />,
+  },
+  {
+    path: "/manager/form/:inviteId",
+    element: <PublicChatForm />,
   },
   {
     path: "/manager/payment/:instanceId/:id",
@@ -66,6 +73,10 @@ const router = createBrowserRouter([
     ),
   },
   {
+    path: "/manager/docs",
+    element: <Documentation />,
+  },
+  {
     path: "/manager/",
     element: (
       <ProtectedRoute>
@@ -91,6 +102,16 @@ const router = createBrowserRouter([
       <ProtectedRoute feature="chat">
         <InstanceLayout>
           <Chat />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/forms",
+    element: (
+      <ProtectedRoute feature="chat">
+        <InstanceLayout>
+          <ChatForms />
         </InstanceLayout>
       </ProtectedRoute>
     ),

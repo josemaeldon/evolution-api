@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks } from "lucide-react";
 import { useState } from "react";
 
@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/queries/api";
+import { ChatForm } from "@/types/chat-form";
 
-type Kind = "buttons" | "copy" | "pix" | "list" | "poll" | "flow";
+type Kind = "buttons" | "copy" | "pix" | "list" | "poll" | "flow" | "form";
 
 type Props = {
   instanceName: string;
@@ -25,6 +26,7 @@ const routes: Record<Kind, string> = {
   list: "sendList",
   poll: "sendPoll",
   flow: "sendFlow",
+  form: "sendButtons",
 };
 
 const labels: Record<Kind, string> = {
@@ -33,16 +35,24 @@ const labels: Record<Kind, string> = {
   pix: "Pix copia e cola",
   list: "Lista",
   poll: "Enquete",
-  flow: "Formulário",
+  flow: "Flow do WhatsApp",
+  form: "Formulário",
 };
 
 export function ChatInteractiveComposer({ instanceName, token, integration, remoteJid, recipientName }: Props) {
   const business = integration === "WHATSAPP-BUSINESS";
   const supported = business || integration === "WHATSAPP-BAILEYS";
   const group = remoteJid.endsWith("@g.us");
-  const kinds: Kind[] = group ? ["poll"] : business ? ["buttons", "list", "flow"] : ["buttons", "copy", "pix", "list", "poll"];
+  const kinds: Kind[] = group ? ["poll"] : business ? ["buttons", "list", "flow", "form"] : ["buttons", "copy", "pix", "list", "poll", "form"];
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [formId, setFormId] = useState("");
+  const { data: forms = [] } = useQuery<ChatForm[]>({
+    queryKey: ["chatForms", instanceName],
+    queryFn: async () => (await api.get(`/forms/${instanceName}`)).data,
+    enabled: open && !!instanceName,
+  });
+  const selectedForm = forms.find((form) => form.id === formId);
   const [kind, setKind] = useState<Kind>(group ? "poll" : "buttons");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -71,17 +81,19 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
     }
   })();
   const valid =
-    kind === "flow"
-      ? Boolean(flowId.trim() && body.trim() && cta.trim())
-      : kind === "pix"
-        ? Boolean(title.trim() && pixKey.trim() && merchantName.trim() && merchantCity.trim() && /^\d{1,6}[.,]\d{2}$/.test(amount.trim()) && Number(amount.replace(",", ".")) > 0)
-        : kind === "copy"
-          ? Boolean(title.trim() && copyCode.trim() && (!paymentUrl.trim() || validPaymentUrl))
-          : kind === "poll"
-            ? Boolean(title.trim() && entries.length >= 2 && selectableCount >= 1 && selectableCount <= entries.length)
-            : kind === "list"
-              ? Boolean(title.trim() && body.trim() && cta.trim() && entries.length > 0)
-              : Boolean(title.trim() && entries.length > 0);
+    kind === "form"
+      ? Boolean(selectedForm)
+      : kind === "flow"
+        ? Boolean(flowId.trim() && body.trim() && cta.trim())
+        : kind === "pix"
+          ? Boolean(title.trim() && pixKey.trim() && merchantName.trim() && merchantCity.trim() && /^\d{1,6}[.,]\d{2}$/.test(amount.trim()) && Number(amount.replace(",", ".")) > 0)
+          : kind === "copy"
+            ? Boolean(title.trim() && copyCode.trim() && (!paymentUrl.trim() || validPaymentUrl))
+            : kind === "poll"
+              ? Boolean(title.trim() && entries.length >= 2 && selectableCount >= 1 && selectableCount <= entries.length)
+              : kind === "list"
+                ? Boolean(title.trim() && body.trim() && cta.trim() && entries.length > 0)
+                : Boolean(title.trim() && entries.length > 0);
 
   const send = async () => {
     if (!valid || sending) return;
@@ -105,34 +117,46 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
         charge = response.data;
         if (!charge?.code || !charge.paymentUrl || !charge.amount) throw new Error("Não foi possível gerar a cobrança Pix.");
       }
+      let formUrl = "";
+      if (kind === "form") {
+        const response = await api.post(`/forms/${instanceName}/${formId}/invite`, { remoteJid });
+        formUrl = response.data.url;
+      }
       const payload =
-        kind === "buttons"
-          ? { number, title: title.trim(), buttons: entries.map((displayText, index) => ({ type: "reply", displayText, id: `reply_${index + 1}` })) }
-          : kind === "pix"
-            ? {
-                number,
-                title: title.trim(),
-                description: [body.trim(), `Valor: R$ ${charge?.amount.replace(".", ",")}`].filter(Boolean).join("\n"),
-                buttons: [{ type: "url", displayText: "Abrir pagamento", url: charge?.paymentUrl }],
-              }
-            : kind === "copy"
+        kind === "form"
+          ? {
+              number,
+              title: selectedForm!.title,
+              description: selectedForm!.description || "Preencha o formulário no botão abaixo.",
+              buttons: [{ type: "url", displayText: "Abrir formulário", url: formUrl }],
+            }
+          : kind === "buttons"
+            ? { number, title: title.trim(), buttons: entries.map((displayText, index) => ({ type: "reply", displayText, id: `reply_${index + 1}` })) }
+            : kind === "pix"
               ? {
                   number,
                   title: title.trim(),
-                  ...(body.trim() && { description: body.trim() }),
-                  buttons: [{ type: "copy", displayText: "Copiar código", copyCode }, ...(paymentUrl.trim() ? [{ type: "url", displayText: "Abrir página", url: paymentUrl.trim() }] : [])],
+                  description: [body.trim(), `Valor: R$ ${charge?.amount.replace(".", ",")}`].filter(Boolean).join("\n"),
+                  buttons: [{ type: "url", displayText: "Abrir pagamento", url: charge?.paymentUrl }],
                 }
-              : kind === "list"
+              : kind === "copy"
                 ? {
                     number,
                     title: title.trim(),
-                    description: body.trim(),
-                    buttonText: cta.trim(),
-                    sections: [{ title: title.trim().slice(0, 24), rows: entries.map((rowTitle, index) => ({ title: rowTitle, description: "", rowId: `row_${index + 1}` })) }],
+                    ...(body.trim() && { description: body.trim() }),
+                    buttons: [{ type: "copy", displayText: "Copiar código", copyCode }, ...(paymentUrl.trim() ? [{ type: "url", displayText: "Abrir página", url: paymentUrl.trim() }] : [])],
                   }
-                : kind === "poll"
-                  ? { number, name: title.trim(), selectableCount, values: entries }
-                  : { number, flowId: flowId.trim(), body: body.trim(), cta: cta.trim(), ...(title.trim() && { header: title.trim() }), ...(screenId.trim() && { screenId: screenId.trim() }) };
+                : kind === "list"
+                  ? {
+                      number,
+                      title: title.trim(),
+                      description: body.trim(),
+                      buttonText: cta.trim(),
+                      sections: [{ title: title.trim().slice(0, 24), rows: entries.map((rowTitle, index) => ({ title: rowTitle, description: "", rowId: `row_${index + 1}` })) }],
+                    }
+                  : kind === "poll"
+                    ? { number, name: title.trim(), selectableCount, values: entries }
+                    : { number, flowId: flowId.trim(), body: body.trim(), cta: cta.trim(), ...(title.trim() && { header: title.trim() }), ...(screenId.trim() && { screenId: screenId.trim() }) };
       await api.post(`/message/${routes[kind]}/${instanceName}`, payload, { headers: { apikey: token } });
       await Promise.all([queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }), queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] })]);
       setOpen(false);
@@ -144,6 +168,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
       setScreenId("");
       setCopyCode("");
       setPaymentUrl("");
+      setFormId("");
       setPixKey("");
       setAmount("");
     } catch (cause: any) {
@@ -181,7 +206,23 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
           ))}
         </div>
         <div className="grid gap-3">
-          {kind !== "flow" && (
+          {kind === "form" && (
+            <div className="space-y-2">
+              <label htmlFor="saved-form" className="text-sm font-medium">
+                Formulário para enviar
+              </label>
+              <select id="saved-form" value={formId} onChange={(event) => setFormId(event.target.value)} className="h-10 w-full rounded-md border bg-background px-3 text-sm">
+                <option value="">Selecione um formulário</option>
+                {forms.map((form) => (
+                  <option key={form.id} value={form.id}>
+                    {form.title}
+                  </option>
+                ))}
+              </select>
+              {!forms.length && <p className="text-sm text-muted-foreground">Crie um formulário no menu Formulários do chat.</p>}
+            </div>
+          )}
+          {kind !== "flow" && kind !== "form" && (
             <Input
               aria-label={kind === "poll" ? "Pergunta da enquete" : "Título"}
               placeholder={kind === "poll" ? "Pergunta da enquete" : "Título"}
@@ -225,7 +266,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
               <p className="text-xs text-muted-foreground">O código será copiado exatamente como informado.</p>
             </>
           )}
-          {kind !== "flow" && kind !== "copy" && kind !== "pix" && (
+          {kind !== "flow" && kind !== "copy" && kind !== "pix" && kind !== "form" && (
             <div className="grid gap-2">
               <span className="text-sm font-medium">{kind === "poll" ? "Opções" : kind === "list" ? "Itens da lista" : "Botões"}</span>
               {items.map((item, index) => (

@@ -19,7 +19,7 @@ function Footer() {
   const links = [
     {
       name: "Docs",
-      url: "https://docs.evolutionfoundation.com.br/",
+      url: "/manager/docs",
     },
   ];
 

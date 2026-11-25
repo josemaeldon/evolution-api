@@ -240,6 +240,21 @@ router.patch('/users/:userId', async (req, res) => {
   return res.json(safeUser(updated));
 });
 
+router.delete('/users/:userId', async (req, res) => {
+  const principal = getManagerPrincipal(req);
+  if (principal.role === 'user') return res.status(403).json(fail('Acesso negado'));
+  const target = await prismaRepository.managerUser.findUnique({ where: { id: req.params.userId } });
+  if (!target) return res.status(404).json(fail('Usuário não encontrado'));
+  if (principal.role !== 'superadmin' && target.companyId !== principal.companyId)
+    return res.status(403).json(fail('Acesso negado'));
+  if (principal.userId === target.id) return res.status(400).json(fail('Não é possível excluir o próprio usuário'));
+  const deleted = await prismaRepository.managerUser.deleteMany({
+    where: { id: target.id, ...(principal.role === 'superadmin' ? {} : { companyId: principal.companyId }) },
+  });
+  if (!deleted.count) return res.status(404).json(fail('Usuário não encontrado'));
+  return res.status(204).send();
+});
+
 router.get('/unassigned-instances', async (req, res) => {
   if (getManagerPrincipal(req).role !== 'superadmin') return res.status(403).json(fail('Acesso negado'));
   const instances = await prismaRepository.instance.findMany({

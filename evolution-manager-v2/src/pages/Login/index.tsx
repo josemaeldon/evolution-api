@@ -245,7 +245,7 @@ function Login() {
         <div className="text-center text-xs text-muted-foreground">
           <p>
             © {new Date().getFullYear()} CloudBR Chat ·{" "}
-            <a href="https://docs.evolutionfoundation.com.br/" target="_blank" rel="noreferrer" className="underline hover:text-primary">
+            <a href="/manager/docs" className="underline hover:text-primary">
               Documentação
             </a>
           </p>

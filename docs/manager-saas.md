@@ -25,3 +25,7 @@ O campo `instanceCount` é atualizado quando uma instância é criada, atribuíd
 Usuários de chat recebem apenas um identificador de sessão no lugar do token da instância. O servidor confere empresa e perfil em cada requisição. Sessões de empresa ficam em cookie HttpOnly com validade de sete dias e são invalidadas ao desativar o usuário, trocar sua senha ou mudar seu perfil. A desativação da empresa bloqueia todas as suas sessões.
 
 O chat usa Socket.IO quando o WebSocket da API está habilitado e atualização periódica quando indisponível. Eventos das sessões de empresa são enviados apenas para a instância autorizada.
+
+## Identificação do atendente
+
+Mensagens enviadas por usuários e administradores da empresa registram o nome do atendente no histórico e o mostram acima da bolha no manager. O controle **Assinar textos e legendas** no chat adiciona o nome ao início do texto ou da legenda que o contato recebe no WhatsApp. A preferência fica salva no navegador para cada usuário. Mensagens de áudio e outros formatos sem legenda continuam identificadas no histórico do manager, mas não recebem uma assinatura no conteúdo enviado ao contato. Execute a migração `20261125020000_manager_message_sender` antes de usar esse recurso.

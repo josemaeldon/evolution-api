@@ -21,6 +21,7 @@ import {
 import { InstanceDto } from '@api/dto/instance.dto';
 import { Query } from '@api/repository/repository.service';
 import { chatController } from '@api/server.module';
+import { managerSender, recordManagerSender } from '@api/services/manager-message.service';
 import { Contact, Message, MessageUpdate } from '@prisma/client';
 import {
   archiveChatSchema,
@@ -107,6 +108,7 @@ export class ChatRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('forwardMessage'), ...guards, async (req, res) => {
+        const sender = await managerSender(req);
         const response = await this.dataValidate<ForwardMessageDto>({
           request: req,
           schema: forwardMessageSchema,
@@ -114,7 +116,9 @@ export class ChatRouter extends RouterBroker {
           execute: (instance, data) => chatController.forwardMessage(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res
+          .status(HttpStatus.CREATED)
+          .json(await recordManagerSender(req.params.instanceName, response, sender, false));
       })
       .post(this.routerPath('fetchProfilePictureUrl'), ...guards, async (req, res) => {
         const response = await this.dataValidate<NumberDto>({

@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
 import { Button } from "@evoapi/design-system/button";
+import { Switch } from "@evoapi/design-system/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +27,7 @@ import { fetchMessagesPage } from "@/lib/queries/chat/findMessages";
 import { useSendMessage, useSendMedia, useSendAudio } from "@/lib/queries/chat/sendMessage";
 import { api } from "@/lib/queries/api";
 import { getToken, TOKEN_ID } from "@/lib/queries/token";
+import { useManagerAccount } from "@/lib/queries/saas";
 
 import { Message, QuotedMessage } from "@/types/evolution.types";
 
@@ -163,41 +165,57 @@ const getMessageText = (messageObj: any): string => {
 
 const messageContent = (message: Message): Record<string, any> => {
   if (typeof message.message !== "string") return message.message || {};
-  try { return JSON.parse(message.message); } catch { return { conversation: message.message }; }
+  try {
+    return JSON.parse(message.message);
+  } catch {
+    return { conversation: message.message };
+  }
 };
 
 const copyableMessageText = (message: Message): string => {
   const content = messageContent(message);
   const nested = content.viewOnceMessage?.message || content.viewOnceMessageV2?.message || content.ephemeralMessage?.message || content;
   const candidates = [
-    getMessageText(nested), nested.extendedTextMessage?.text, nested.imageMessage?.caption,
-    nested.videoMessage?.caption, nested.documentMessage?.caption, nested.documentMessage?.fileName,
+    getMessageText(nested),
+    nested.extendedTextMessage?.text,
+    nested.imageMessage?.caption,
+    nested.videoMessage?.caption,
+    nested.documentMessage?.caption,
+    nested.documentMessage?.fileName,
     nested.documentWithCaptionMessage?.message?.documentMessage?.caption,
-    nested.buttonsResponseMessage?.selectedDisplayText, nested.listResponseMessage?.title,
-    nested.interactiveMessage?.body?.text, nested.listMessage?.description,
-    nested.pollCreationMessage?.name, nested.pollCreationMessageV3?.name,
+    nested.buttonsResponseMessage?.selectedDisplayText,
+    nested.listResponseMessage?.title,
+    nested.interactiveMessage?.body?.text,
+    nested.listMessage?.description,
+    nested.pollCreationMessage?.name,
+    nested.pollCreationMessageV3?.name,
   ];
   return candidates.find((value) => typeof value === "string" && value.trim())?.trim() || "";
 };
 
-const messagePreview = (message: Message): string => copyableMessageText(message) || ({
-  imageMessage: "Imagem", videoMessage: "Vídeo", audioMessage: "Áudio",
-  documentMessage: "Documento", stickerMessage: "Figurinha",
-}[message.messageType] || "Mensagem");
+const messagePreview = (message: Message): string =>
+  copyableMessageText(message) ||
+  {
+    imageMessage: "Imagem",
+    videoMessage: "Vídeo",
+    audioMessage: "Áudio",
+    documentMessage: "Documento",
+    stickerMessage: "Figurinha",
+  }[message.messageType] ||
+  "Mensagem";
 
 const quotedMessage = (message: Message): QuotedMessage => ({ key: message.key, message: messageContent(message) });
 const PAGE_SIZE = 30;
 
 const quotedContentPreview = (message: Message): string | null => {
   const content = messageContent(message);
-  const body = content.extendedTextMessage || content.imageMessage || content.videoMessage ||
-    content.audioMessage || content.documentMessage || content.documentWithCaptionMessage?.message?.documentMessage;
+  const body =
+    content.extendedTextMessage || content.imageMessage || content.videoMessage || content.audioMessage || content.documentMessage || content.documentWithCaptionMessage?.message?.documentMessage;
   const quoted = message.contextInfo?.quotedMessage || content.contextInfo?.quotedMessage || body?.contextInfo?.quotedMessage;
   if (!quoted) return null;
-  const text = quoted.conversation || quoted.extendedTextMessage?.text || quoted.imageMessage?.caption ||
-    quoted.videoMessage?.caption || quoted.documentMessage?.caption || quoted.documentMessage?.fileName;
-  return text || (quoted.imageMessage ? "Imagem" : quoted.videoMessage ? "Vídeo" :
-    quoted.audioMessage ? "Áudio" : quoted.documentMessage ? "Documento" : "Mensagem");
+  const text =
+    quoted.conversation || quoted.extendedTextMessage?.text || quoted.imageMessage?.caption || quoted.videoMessage?.caption || quoted.documentMessage?.caption || quoted.documentMessage?.fileName;
+  return text || (quoted.imageMessage ? "Imagem" : quoted.videoMessage ? "Vídeo" : quoted.audioMessage ? "Áudio" : quoted.documentMessage ? "Documento" : "Mensagem");
 };
 
 const QuotedContent = ({ message }: { message: Message }) => {
@@ -212,7 +230,14 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 
   switch (messageType) {
     case "conversation":
-      if (message.message?.buttonsResponseMessage || message.message?.listResponseMessage || message.message?.pollCreationMessage || message.message?.pollCreationMessageV3 || message.message?.interactiveMessage || message.message?.listMessage) {
+      if (
+        message.message?.buttonsResponseMessage ||
+        message.message?.listResponseMessage ||
+        message.message?.pollCreationMessage ||
+        message.message?.pollCreationMessageV3 ||
+        message.message?.interactiveMessage ||
+        message.message?.listMessage
+      ) {
         return <ChatInteractiveMessage message={message} />;
       }
       if (message.message.contactMessage) {
@@ -337,21 +362,57 @@ const DeferredMessageContent = ({ message, instanceName, token }: { message: Mes
       setVisible(true);
       return;
     }
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setVisible(true);
-        observer.disconnect();
-      }
-    }, { rootMargin: "400px" });
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "400px" },
+    );
     observer.observe(element);
     return () => observer.disconnect();
   }, [isMedia, visible]);
 
   if (!isMedia) return <MessageContent message={message} instanceName={instanceName} token={token} />;
-  return <div ref={containerRef} className={visible ? undefined : "min-h-20 min-w-32"}>
-    {visible ? <MessageContent message={message} instanceName={instanceName} token={token} /> :
-      <span className="text-xs text-muted-foreground">{messagePreview(message)}</span>}
-  </div>;
+  return (
+    <div ref={containerRef} className={visible ? undefined : "min-h-20 min-w-32"}>
+      {visible ? <MessageContent message={message} instanceName={instanceName} token={token} /> : <span className="text-xs text-muted-foreground">{messagePreview(message)}</span>}
+    </div>
+  );
+};
+
+const withoutManagerSignature = (message: Message): Message => {
+  if (!message.managerSigned || !message.managerSenderName || !message.message) return message;
+  const safeName = message.managerSenderName
+    .replace(/[\r\n*_~`]/g, " ")
+    .trim()
+    .slice(0, 100);
+  const prefix = `*${safeName}*\n`;
+  const content = { ...message.message };
+  if (typeof content.conversation === "string" && content.conversation.startsWith(prefix)) {
+    content.conversation = content.conversation.slice(prefix.length);
+  }
+  if (typeof content.extendedTextMessage?.text === "string" && content.extendedTextMessage.text.startsWith(prefix)) {
+    content.extendedTextMessage = { ...content.extendedTextMessage, text: content.extendedTextMessage.text.slice(prefix.length) };
+  }
+  for (const kind of ["imageMessage", "videoMessage", "documentMessage"]) {
+    if (typeof content[kind]?.caption === "string" && content[kind].caption.startsWith(prefix)) {
+      content[kind] = { ...content[kind], caption: content[kind].caption.slice(prefix.length) };
+    }
+  }
+  const nestedDocument = content.documentWithCaptionMessage?.message?.documentMessage;
+  if (typeof nestedDocument?.caption === "string" && nestedDocument.caption.startsWith(prefix)) {
+    content.documentWithCaptionMessage = {
+      ...content.documentWithCaptionMessage,
+      message: {
+        ...content.documentWithCaptionMessage.message,
+        documentMessage: { ...nestedDocument, caption: nestedDocument.caption.slice(prefix.length) },
+      },
+    };
+  }
+  return { ...message, message: content };
 };
 
 function Messages({ contacts = [], headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
@@ -359,6 +420,9 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const queryClient = useQueryClient();
   const locale = i18n.language;
   const { instance } = useInstance();
+  const { data: managerAccount } = useManagerAccount();
+  const signaturePreferenceKey = managerAccount?.id ? `chat-signature:${managerAccount.id}` : null;
+  const [signMessages, setSignMessages] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
@@ -374,6 +438,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const [olderPages, setOlderPages] = useState<Message[][]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const loadingOlderRef = useRef(false);
+  const readReceiptIdsRef = useRef(new Set<string>());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const restoreScrollRef = useRef<{ height: number; top: number; expectedPages: number } | null>(null);
   const initialScrollDoneRef = useRef(false);
@@ -383,6 +448,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const { sendAudio: sendAudioMutation } = useSendAudio();
 
   const { remoteJid } = useParams<{ remoteJid: string }>();
+
+  useEffect(() => {
+    setSignMessages(signaturePreferenceKey ? localStorage.getItem(signaturePreferenceKey) === "true" : false);
+  }, [signaturePreferenceKey]);
 
   useEffect(() => setRecordingActive(false), [remoteJid]);
 
@@ -410,6 +479,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         data: {
           number: remoteJid,
           text: messageText.trim(),
+          signMessage: signMessages,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
         },
       });
@@ -453,6 +523,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         token: instance.token,
         data: {
           number: remoteJid,
+          signMessage: signMessages,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
           mediaMessage: {
             mediatype: selectedMedia.type.split("/")[0] === "application" ? "document" : (selectedMedia.type.split("/")[0] as "audio" | "video" | "image" | "document"),
@@ -553,12 +624,44 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
     // Then add/update with real-time messages
     realtimeMessages.forEach((message) => {
-      messageMap.set(message.key.id, message);
+      const stored = messageMap.get(message.key.id) as Message | undefined;
+      messageMap.set(message.key.id, {
+        ...stored,
+        ...message,
+        managerSenderId: message.managerSenderId ?? stored?.managerSenderId,
+        managerSenderName: message.managerSenderName ?? stored?.managerSenderName,
+        managerSigned: message.managerSigned ?? stored?.managerSigned,
+      });
     });
 
-    return Array.from(messageMap.values()).filter((message: Message) =>
-      !removedIds.has(message.key.id) && !message.key.deleted && message.status !== "DELETED");
+    return Array.from(messageMap.values()).filter((message: Message) => !removedIds.has(message.key.id) && !message.key.deleted && message.status !== "DELETED");
   }, [messages, olderPages, realtimeMessages, removedIds]);
+
+  useEffect(() => {
+    readReceiptIdsRef.current.clear();
+  }, [instance?.id, remoteJid]);
+
+  useEffect(() => {
+    if (!instance?.name || !instance.token || !remoteJid || !allMessages.length) return;
+    const unreadMessages = allMessages.filter(
+      (message) => !message.key.fromMe && message.key.remoteJid === remoteJid && message.status === "DELIVERY_ACK" && !readReceiptIdsRef.current.has(message.key.id),
+    );
+    if (!unreadMessages.length) return;
+    unreadMessages.forEach((message) => readReceiptIdsRef.current.add(message.key.id));
+    api
+      .post(
+        `/chat/markMessageAsRead/${instance.name}`,
+        { readMessages: unreadMessages.map(({ key }) => ({ id: key.id, fromMe: false, remoteJid: key.remoteJid })) },
+        { headers: { apikey: instance.token } },
+      )
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
+      })
+      .catch((error) => {
+        unreadMessages.forEach((message) => readReceiptIdsRef.current.delete(message.key.id));
+        console.error("Could not mark chat messages as read:", error);
+      });
+  }, [allMessages, instance?.id, instance?.name, instance?.token, queryClient, remoteJid]);
 
   // Add websocket functionality for real-time message updates
   useEffect(() => {
@@ -593,7 +696,13 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         if (existingIndex !== -1) {
           // Update existing message
           const updatedMessages = [...prevMessages];
-          updatedMessages[existingIndex] = message;
+          updatedMessages[existingIndex] = {
+            ...updatedMessages[existingIndex],
+            ...message,
+            managerSenderId: message.managerSenderId ?? updatedMessages[existingIndex].managerSenderId,
+            managerSenderName: message.managerSenderName ?? updatedMessages[existingIndex].managerSenderName,
+            managerSigned: message.managerSigned ?? updatedMessages[existingIndex].managerSigned,
+          };
           return updatedMessages;
         } else {
           // Add new message
@@ -726,7 +835,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       input.select();
       const copied = document.execCommand("copy");
       input.remove();
-      if (!copied) { toast.error("Não foi possível copiar a mensagem"); return; }
+      if (!copied) {
+        toast.error("Não foi possível copiar a mensagem");
+        return;
+      }
     }
     toast.success("Mensagem copiada");
   };
@@ -757,11 +869,15 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     if (!/^\d{8,15}$/.test(number)) return;
     try {
       setForwarding(true);
-      await api.post(`/chat/forwardMessage/${instance.name}`, {
-        id: forwardSource.key.id,
-        remoteJid: forwardSource.key.remoteJid,
-        number,
-      }, { headers: { apikey: instance.token } });
+      await api.post(
+        `/chat/forwardMessage/${instance.name}`,
+        {
+          id: forwardSource.key.id,
+          remoteJid: forwardSource.key.remoteJid,
+          number,
+        },
+        { headers: { apikey: instance.token } },
+      );
       setForwardSource(null);
       await queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] });
       toast.success("Mensagem encaminhada");
@@ -781,23 +897,26 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={message.key.fromMe ? "end" : "start"}>
-        <DropdownMenuItem onClick={() => { setReplyTo(message); textareaRef.current?.focus(); }}>
+        <DropdownMenuItem
+          onClick={() => {
+            setReplyTo(message);
+            textareaRef.current?.focus();
+          }}>
           <Reply className="mr-2 h-4 w-4" /> Responder
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={instance?.integration !== "WHATSAPP-BAILEYS"} onClick={() => {
-          setForwardSearch("");
-          setForwardSelectedJid("");
-          setForwardSource(message);
-        }}>
+        <DropdownMenuItem
+          disabled={instance?.integration !== "WHATSAPP-BAILEYS"}
+          onClick={() => {
+            setForwardSearch("");
+            setForwardSelectedJid("");
+            setForwardSource(message);
+          }}>
           <Forward className="mr-2 h-4 w-4" /> Encaminhar
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!copyableMessageText(message)} onClick={() => copyMessage(message)}>
           <Copy className="mr-2 h-4 w-4" /> Copiar
         </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!message.key.fromMe || instance?.integration !== "WHATSAPP-BAILEYS" || !!deletingId}
-          className="text-destructive"
-          onClick={() => deleteForEveryone(message)}>
+        <DropdownMenuItem disabled={!message.key.fromMe || instance?.integration !== "WHATSAPP-BAILEYS" || !!deletingId} className="text-destructive" onClick={() => deleteForEveryone(message)}>
           <Trash2 className="mr-2 h-4 w-4" /> Excluir para todos
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -809,9 +928,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       <div className="flex max-w-[85%] items-start gap-1">
         {messageActions(message)}
         <div className="min-w-0">
+          {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}</div>}
           <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
             <QuotedContent message={message} />
-            <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
+            <DeferredMessageContent message={withoutManagerSignature(message)} instanceName={instance?.name} token={instance?.token} />
           </div>
           <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
         </div>
@@ -829,16 +949,16 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       <div key={message.key.id} className="mb-4 flex justify-start">
         <div className="flex max-w-[85%] items-start gap-1">
           <div className="min-w-0">
-          {isGroup && senderName && (
-            <div className="mb-1 text-xs font-semibold" style={{ color: getSenderColor(senderKey) }}>
-              {senderName}
+            {isGroup && senderName && (
+              <div className="mb-1 text-xs font-semibold" style={{ color: getSenderColor(senderKey) }}>
+                {senderName}
+              </div>
+            )}
+            <div className="rounded-lg border bg-muted px-3 py-2 text-sm text-foreground">
+              <QuotedContent message={message} />
+              <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
             </div>
-          )}
-          <div className="rounded-lg border bg-muted px-3 py-2 text-sm text-foreground">
-            <QuotedContent message={message} />
-            <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
-          </div>
-          <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
+            <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
           </div>
           {messageActions(message)}
         </div>
@@ -848,12 +968,23 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
   const headerName = headerNameOverride || chat?.pushName || chat?.remoteJid?.split("@")[0] || remoteJid?.split("@")[0];
   const headerSub = chat?.remoteJid?.split("@")[0];
-  const forwardQuery = forwardSearch.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const forwardQuery = forwardSearch
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
   const forwardDigits = forwardSearch.replace(/\D/g, "");
-  const forwardContacts = contacts.filter((contact) => contact.remoteJid.endsWith("@s.whatsapp.net") &&
-    (!forwardQuery ||
-      (contact.pushName || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(forwardQuery) ||
-      (forwardDigits.length > 0 && contact.remoteJid.includes(forwardDigits))));
+  const forwardContacts = contacts.filter(
+    (contact) =>
+      contact.remoteJid.endsWith("@s.whatsapp.net") &&
+      (!forwardQuery ||
+        (contact.pushName || "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .includes(forwardQuery) ||
+        (forwardDigits.length > 0 && contact.remoteJid.includes(forwardDigits))),
+  );
   const selectedForwardNumber = (forwardSelectedJid || forwardSearch).replace(/\D/g, "");
 
   return (
@@ -876,7 +1007,11 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         </div>
         <div ref={scrollContainerRef} onScroll={handleHistoryScroll} className="flex w-full flex-1 flex-col overflow-y-auto px-4 py-4">
           {loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Carregando mensagens anteriores...</p>}
-          {hasOlder && !loadingOlder && <button type="button" className="py-2 text-center text-xs text-primary hover:underline" onClick={loadOlder}>Carregar mensagens anteriores</button>}
+          {hasOlder && !loadingOlder && (
+            <button type="button" className="py-2 text-center text-xs text-primary hover:underline" onClick={loadOlder}>
+              Carregar mensagens anteriores
+            </button>
+          )}
           {groupedMessages.map((group, groupIndex) => (
             <div key={groupIndex}>
               <DateSeparator date={group.date} />
@@ -887,14 +1022,34 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         </div>
         <div className="flex-shrink-0 border-t bg-background p-3">
           <div className="rounded-lg border border-border bg-card shadow-sm">
-            {replyTo && <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
-              <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold">Respondendo a {replyTo.key.fromMe ? "você" : replyTo.pushName || headerName}</p>
-                <p className="truncate text-xs text-muted-foreground">{messagePreview(replyTo)}</p>
+            {managerAccount?.id && (
+              <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-1.5">
+                <label htmlFor="sign-chat-messages" className="min-w-0 text-xs text-muted-foreground">
+                  Assinar textos e legendas como <span className="font-semibold text-foreground">{managerAccount.name}</span>
+                </label>
+                <Switch
+                  id="sign-chat-messages"
+                  checked={signMessages}
+                  onCheckedChange={(checked) => {
+                    setSignMessages(checked);
+                    if (signaturePreferenceKey) localStorage.setItem(signaturePreferenceKey, String(checked));
+                  }}
+                  aria-label="Assinar mensagens com meu nome"
+                />
               </div>
-              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="Cancelar resposta" onClick={() => setReplyTo(null)}><X className="h-4 w-4" /></Button>
-            </div>}
+            )}
+            {replyTo && (
+              <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
+                <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold">Respondendo a {replyTo.key.fromMe ? "você" : replyTo.pushName || headerName}</p>
+                  <p className="truncate text-xs text-muted-foreground">{messagePreview(replyTo)}</p>
+                </div>
+                <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="Cancelar resposta" onClick={() => setReplyTo(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
             {selectedMedia && (
               <div className="border-b border-border bg-muted/30 px-3 py-2">
                 <SelectedMedia selectedMedia={selectedMedia} setSelectedMedia={setSelectedMedia} />
@@ -902,37 +1057,54 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             )}
             <div className="flex items-center gap-2 px-2 py-1.5">
               {!recordingActive && <div className="flex flex-shrink-0 items-center">{instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}</div>}
-              {!recordingActive && instance?.token && remoteJid && <ChatInteractiveComposer key={remoteJid} instanceName={instance.name} token={instance.token} integration={instance.integration} remoteJid={remoteJid} recipientName={instance.profileName} />}
-              {!recordingActive && <Textarea
-                placeholder={t("chat.input.placeholder", { defaultValue: "Digite uma mensagem..." })}
-                name="message"
-                id="message"
-                rows={1}
-                ref={textareaRef}
-                value={messageText}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                disabled={isSending}
-                style={{ height: textareaHeight }}
-                className="min-h-9 flex-1 resize-none border-none bg-transparent px-2 py-1.5 text-sm shadow-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              />}
+              {!recordingActive && instance?.token && remoteJid && (
+                <ChatInteractiveComposer
+                  key={remoteJid}
+                  instanceName={instance.name}
+                  token={instance.token}
+                  integration={instance.integration}
+                  remoteJid={remoteJid}
+                  recipientName={instance.profileName}
+                />
+              )}
+              {!recordingActive && (
+                <Textarea
+                  placeholder={t("chat.input.placeholder", { defaultValue: "Digite uma mensagem..." })}
+                  name="message"
+                  id="message"
+                  rows={1}
+                  ref={textareaRef}
+                  value={messageText}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  disabled={isSending}
+                  style={{ height: textareaHeight }}
+                  className="min-h-9 flex-1 resize-none border-none bg-transparent px-2 py-1.5 text-sm shadow-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+              )}
               {!messageText.trim() && !selectedMedia && (
                 <ChatVoiceRecorder key={remoteJid} disabled={isSending || !instance?.token || !remoteJid} onActiveChange={setRecordingActive} onSend={sendRecording} />
               )}
-              {!recordingActive && (messageText.trim() || selectedMedia) && <Button
-                type="button"
-                size="icon"
-                onClick={sendMessage}
-                disabled={(!messageText.trim() && !selectedMedia) || isSending}
-                className="h-9 w-9 flex-shrink-0 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-50">
-                <Send className="h-4 w-4" />
-                <span className="sr-only">{t("chat.input.send")}</span>
-              </Button>}
+              {!recordingActive && (messageText.trim() || selectedMedia) && (
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={sendMessage}
+                  disabled={(!messageText.trim() && !selectedMedia) || isSending}
+                  className="h-9 w-9 flex-shrink-0 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-50">
+                  <Send className="h-4 w-4" />
+                  <span className="sr-only">{t("chat.input.send")}</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>
       </div>
-      <Dialog open={!!forwardSource} onOpenChange={(open) => { if (!open && !forwarding) setForwardSource(null); }}>
+      <Dialog
+        open={!!forwardSource}
+        onOpenChange={(open) => {
+          if (!open && !forwarding) setForwardSource(null);
+        }}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle>Encaminhar mensagem</DialogTitle>
           <DialogDescription className="truncate">{forwardSource && messagePreview(forwardSource)}</DialogDescription>
@@ -941,15 +1113,28 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             aria-label="Pesquisar destino"
             placeholder="Nome ou número com DDI e DDD"
             value={forwardSearch}
-            onChange={(event) => { setForwardSearch(event.target.value); setForwardSelectedJid(""); }}
+            onChange={(event) => {
+              setForwardSearch(event.target.value);
+              setForwardSelectedJid("");
+            }}
           />
           <div className="max-h-[40dvh] space-y-1 overflow-y-auto">
             {forwardContacts.map((contact) => (
-              <button key={contact.remoteJid} type="button"
+              <button
+                key={contact.remoteJid}
+                type="button"
                 className={`flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-accent ${forwardSelectedJid === contact.remoteJid ? "bg-accent" : ""}`}
                 onClick={() => setForwardSelectedJid(contact.remoteJid)}>
-                <Avatar className="h-9 w-9 shrink-0"><AvatarImage src={contact.profilePicUrl} alt={contact.pushName || contact.remoteJid} /><AvatarFallback><User className="h-4 w-4" /></AvatarFallback></Avatar>
-                <span className="min-w-0"><span className="block truncate text-sm font-medium">{contact.pushName || contact.remoteJid.split("@")[0]}</span><span className="block text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</span></span>
+                <Avatar className="h-9 w-9 shrink-0">
+                  <AvatarImage src={contact.profilePicUrl} alt={contact.pushName || contact.remoteJid} />
+                  <AvatarFallback>
+                    <User className="h-4 w-4" />
+                  </AvatarFallback>
+                </Avatar>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{contact.pushName || contact.remoteJid.split("@")[0]}</span>
+                  <span className="block text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</span>
+                </span>
               </button>
             ))}
             {forwardContacts.length === 0 && <p className="py-3 text-center text-sm text-muted-foreground">Nenhum contato encontrado. Você pode digitar um número.</p>}

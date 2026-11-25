@@ -17,6 +17,12 @@ import {
 } from '@api/dto/sendMessage.dto';
 import { sendMessageController } from '@api/server.module';
 import {
+  managerSender,
+  recordManagerRequest,
+  recordManagerSender,
+  signedText,
+} from '@api/services/manager-message.service';
+import {
   audioMessageSchema,
   buttonsMessageSchema,
   contactMessageSchema,
@@ -51,20 +57,32 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendTemplate(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendText'), ...guards, async (req, res) => {
+        const sender = await managerSender(req);
+        const signed = !!sender && req.body?.signMessage === true;
         const response = await this.dataValidate<SendTextDto>({
           request: req,
           schema: textMessageSchema,
           ClassRef: SendTextDto,
-          execute: (instance, data) => sendMessageController.sendText(instance, data),
+          execute: (instance, data) =>
+            sendMessageController.sendText(instance, {
+              ...data,
+              text: signed ? signedText(sender.name, data.text) : data.text,
+            }),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res
+          .status(HttpStatus.CREATED)
+          .json(await recordManagerSender(req.params.instanceName, response, sender, signed));
       })
       .post(this.routerPath('sendMedia'), ...guards, upload.single('file'), async (req, res) => {
+        const sender = await managerSender(req);
+        const signed =
+          !!sender && req.body?.signMessage === true && ['image', 'video', 'document'].includes(req.body?.mediatype);
         const bodyData = req.body;
+        if (signed) bodyData.caption = signedText(sender.name, String(bodyData.caption || ''));
 
         const response = await this.dataValidate<SendMediaDto>({
           request: req,
@@ -73,7 +91,9 @@ export class MessageRouter extends RouterBroker {
           execute: (instance) => sendMessageController.sendMedia(instance, bodyData, req.file as any),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res
+          .status(HttpStatus.CREATED)
+          .json(await recordManagerSender(req.params.instanceName, response, sender, signed));
       })
       .post(this.routerPath('sendPtv'), ...guards, upload.single('file'), async (req, res) => {
         const bodyData = req.body;
@@ -85,9 +105,10 @@ export class MessageRouter extends RouterBroker {
           execute: (instance) => sendMessageController.sendPtv(instance, bodyData, req.file as any),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendWhatsAppAudio'), ...guards, upload.single('file'), async (req, res) => {
+        const sender = await managerSender(req);
         const bodyData = req.body;
 
         const response = await this.dataValidate<SendAudioDto>({
@@ -97,7 +118,9 @@ export class MessageRouter extends RouterBroker {
           execute: (instance) => sendMessageController.sendWhatsAppAudio(instance, bodyData, req.file as any),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res
+          .status(HttpStatus.CREATED)
+          .json(await recordManagerSender(req.params.instanceName, response, sender, false));
       })
       // TODO: Revisar funcionamento do envio de Status
       .post(this.routerPath('sendStatus'), ...guards, upload.single('file'), async (req, res) => {
@@ -122,7 +145,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance) => sendMessageController.sendSticker(instance, bodyData, req.file as any),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendLocation'), ...guards, async (req, res) => {
         const response = await this.dataValidate<SendLocationDto>({
@@ -132,7 +155,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendLocation(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendContact'), ...guards, async (req, res) => {
         const response = await this.dataValidate<SendContactDto>({
@@ -142,7 +165,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendContact(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendReaction'), ...guards, async (req, res) => {
         const response = await this.dataValidate<SendReactionDto>({
@@ -162,7 +185,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendPoll(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendFlow'), ...guards, async (req, res) => {
         const response = await this.dataValidate<SendFlowDto>({
@@ -172,7 +195,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendFlow(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendList'), ...guards, async (req, res) => {
         const response = await this.dataValidate<SendListDto>({
@@ -182,7 +205,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendList(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       })
       .post(this.routerPath('sendButtons'), ...guards, async (req, res) => {
         const response = await this.dataValidate<SendButtonsDto>({
@@ -192,7 +215,7 @@ export class MessageRouter extends RouterBroker {
           execute: (instance, data) => sendMessageController.sendButtons(instance, data),
         });
 
-        return res.status(HttpStatus.CREATED).json(response);
+        return res.status(HttpStatus.CREATED).json(await recordManagerRequest(req, response));
       });
   }
 

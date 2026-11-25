@@ -1,0 +1,237 @@
+import { Button } from "@evoapi/design-system/button";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ClipboardList, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-toastify";
+
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useInstance } from "@/contexts/InstanceContext";
+import { api } from "@/lib/queries/api";
+import { ChatForm, FormField, FormFieldType, FormSubmission } from "@/types/chat-form";
+
+const fieldTypes: { value: FormFieldType; label: string }[] = [
+  { value: "text", label: "Texto curto" },
+  { value: "textarea", label: "Texto longo" },
+  { value: "email", label: "E-mail" },
+  { value: "phone", label: "Telefone" },
+  { value: "number", label: "Número" },
+  { value: "select", label: "Escolha única" },
+  { value: "checkbox", label: "Confirmação" },
+];
+
+const newField = (): FormField => ({ id: crypto.randomUUID(), label: "", type: "text", required: true });
+
+export default function ChatForms() {
+  const { instance } = useInstance();
+  const queryClient = useQueryClient();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [fields, setFields] = useState<FormField[]>(() => [newField()]);
+  const [page, setPage] = useState(0);
+  const { data: forms = [], isLoading } = useQuery<ChatForm[]>({
+    queryKey: ["chatForms", instance?.name],
+    queryFn: async () => (await api.get(`/forms/${instance?.name}`)).data,
+    enabled: !!instance?.name,
+  });
+  const selected = forms.find((form) => form.id === selectedId);
+  const { data: submissionPage, isLoading: loadingSubmissions } = useQuery<{ items: FormSubmission[]; hasMore: boolean }>({
+    queryKey: ["chatFormSubmissions", instance?.name, selectedId, page],
+    queryFn: async () => (await api.get(`/forms/${instance?.name}/${selectedId}/submissions`, { params: { page } })).data,
+    enabled: !!instance?.name && !!selectedId,
+  });
+  const submissions = submissionPage?.items || [];
+
+  const updateField = (id: string, update: Partial<FormField>) => setFields((current) => current.map((field) => (field.id === id ? { ...field, ...update } : field)));
+
+  const save = async () => {
+    if (!instance || saving) return;
+    const clean = fields.map((field) => ({
+      ...field,
+      label: field.label.trim(),
+      ...(field.type === "select" ? { options: (field.options || []).map((option) => option.trim()).filter(Boolean) } : { options: undefined }),
+    }));
+    if (!title.trim() || clean.some((field) => !field.label || (field.type === "select" && (field.options?.length || 0) < 2))) {
+      toast.error("Informe o título e preencha todos os campos do formulário");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await api.post<ChatForm>(`/forms/${instance.name}`, { title: title.trim(), description: description.trim(), fields: clean });
+      await queryClient.invalidateQueries({ queryKey: ["chatForms", instance.name] });
+      setSelectedId(response.data.id);
+      setPage(0);
+      setCreating(false);
+      setTitle("");
+      setDescription("");
+      setFields([newField()]);
+      toast.success("Formulário criado");
+    } catch (cause: any) {
+      toast.error(cause?.response?.data?.error || "Não foi possível criar o formulário");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 pb-10">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Formulários</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Crie formulários e acompanhe as respostas recebidas dos contatos.</p>
+        </div>
+        <Button onClick={() => setCreating(true)}>
+          <Plus className="mr-2 h-4 w-4" /> Criar formulário
+        </Button>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)]">
+        <aside className="space-y-2">
+          {isLoading && <p className="text-sm text-muted-foreground">Carregando formulários...</p>}
+          {!isLoading && !forms.length && <p className="rounded-xl border p-5 text-sm text-muted-foreground">Nenhum formulário criado.</p>}
+          {forms.map((form) => (
+            <button
+              key={form.id}
+              type="button"
+              onClick={() => {
+                setSelectedId(form.id);
+                setPage(0);
+              }}
+              className={`flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-accent ${selectedId === form.id ? "border-primary bg-primary/5" : "bg-card"}`}>
+              <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{form.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {form.fields.length} campos · {new Date(form.createdAt).toLocaleDateString("pt-BR")}
+                </span>
+              </span>
+            </button>
+          ))}
+        </aside>
+
+        <section className="min-w-0 rounded-xl border bg-card p-5 sm:p-6">
+          {!selected && (
+            <p className="text-sm text-muted-foreground">
+              Selecione um formulário para consultar as respostas. Para enviá-lo, abra uma conversa e escolha “Formulário” em “Enviar mensagem interativa”.
+            </p>
+          )}
+          {selected && (
+            <>
+              <h2 className="text-xl font-semibold">{selected.title}</h2>
+              {selected.description && <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p>}
+              <div className="mt-5 border-t pt-5">
+                <h3 className="font-medium">Respostas por contato</h3>
+                {loadingSubmissions && <p className="mt-3 text-sm text-muted-foreground">Carregando respostas...</p>}
+                {!loadingSubmissions && !submissions.length && <p className="mt-3 text-sm text-muted-foreground">Ainda não há respostas.</p>}
+                <div className="mt-3 space-y-3">
+                  {submissions.map((submission) => (
+                    <article key={submission.id} className="rounded-lg border p-4">
+                      <div className="flex flex-wrap items-baseline justify-between gap-1">
+                        <strong>{submission.contactName}</strong>
+                        <time className="text-xs text-muted-foreground">{new Date(submission.createdAt).toLocaleString("pt-BR")}</time>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{submission.remoteJid.split("@")[0]}</p>
+                      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {selected.fields.map((field) => (
+                          <div key={field.id} className="min-w-0">
+                            <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                            <dd className="break-words text-sm">
+                              {submission.answers[field.id] === true ? "Sim" : submission.answers[field.id] === false ? "Não" : submission.answers[field.id] || "—"}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+                {(page > 0 || submissionPage?.hasMore) && (
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <Button type="button" variant="outline" disabled={page === 0 || loadingSubmissions} onClick={() => setPage((current) => current - 1)}>
+                      Anterior
+                    </Button>
+                    <span className="text-xs text-muted-foreground">Página {page + 1}</span>
+                    <Button type="button" variant="outline" disabled={!submissionPage?.hasMore || loadingSubmissions} onClick={() => setPage((current) => current + 1)}>
+                      Próxima
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Criar formulário</DialogTitle>
+            <DialogDescription>Defina as perguntas que o contato deverá responder.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input aria-label="Título do formulário" placeholder="Título do formulário" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Textarea aria-label="Descrição do formulário" placeholder="Descrição (opcional)" maxLength={1000} value={description} onChange={(event) => setDescription(event.target.value)} />
+            {fields.map((field, index) => (
+              <div key={field.id} className="space-y-3 rounded-xl border p-4">
+                <div className="flex items-center justify-between">
+                  <strong className="text-sm">Campo {index + 1}</strong>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remover campo"
+                    disabled={fields.length === 1}
+                    onClick={() => setFields((current) => current.filter((item) => item.id !== field.id))}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input
+                  aria-label={`Pergunta ${index + 1}`}
+                  placeholder="Pergunta ou nome do campo"
+                  maxLength={120}
+                  value={field.label}
+                  onChange={(event) => updateField(field.id, { label: event.target.value })}
+                />
+                <div className="flex flex-wrap gap-3">
+                  <select
+                    aria-label={`Tipo do campo ${index + 1}`}
+                    className="h-10 min-w-40 flex-1 rounded-md border bg-background px-3 text-sm"
+                    value={field.type}
+                    onChange={(event) => updateField(field.id, { type: event.target.value as FormFieldType, options: event.target.value === "select" ? ["", ""] : undefined })}>
+                    {fieldTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={field.required} onChange={(event) => updateField(field.id, { required: event.target.checked })} /> Obrigatório
+                  </label>
+                </div>
+                {field.type === "select" && (
+                  <Textarea
+                    aria-label={`Opções do campo ${index + 1}`}
+                    placeholder="Uma opção por linha"
+                    value={(field.options || []).join("\n")}
+                    onChange={(event) => updateField(field.id, { options: event.target.value.split("\n") })}
+                  />
+                )}
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" disabled={fields.length >= 20} onClick={() => setFields((current) => [...current, newField()])}>
+                <Plus className="mr-2 h-4 w-4" /> Adicionar campo
+              </Button>
+              <Button type="button" disabled={saving} onClick={save}>
+                {saving ? "Salvando..." : "Salvar formulário"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

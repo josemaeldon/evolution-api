@@ -1,14 +1,5 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@evoapi/design-system/collapsible";
-import {
-  ChevronDown,
-  Cog,
-  FileQuestion,
-  IterationCcw,
-  LayoutDashboard,
-  MessageCircle,
-  Building2,
-  Zap,
-} from "lucide-react";
+import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
@@ -52,15 +43,9 @@ function SidebarShell({ children, footer }: { children: React.ReactNode; footer?
         <img src={logoSrc} alt="CloudBR Chat" className="h-8 w-auto" />
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
-        {children}
-      </nav>
+      <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">{children}</nav>
 
-      {footer && (
-        <div className="border-t border-sidebar-border px-2 py-3 space-y-1">
-          {footer}
-        </div>
-      )}
+      {footer && <div className="border-t border-sidebar-border px-2 py-3 space-y-1">{footer}</div>}
 
       <div className="p-4 border-t border-sidebar-border">
         <div className="text-sm font-medium text-primary">CloudBR Chat</div>
@@ -77,8 +62,7 @@ function NavItem({ to, icon: Icon, label, isExternal }: { to: string; icon?: typ
         href={to}
         target="_blank"
         rel="noreferrer"
-        className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-      >
+        className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground">
         {Icon && <Icon className="h-5 w-5 flex-shrink-0" />}
         <span>{label}</span>
       </a>
@@ -88,12 +72,8 @@ function NavItem({ to, icon: Icon, label, isExternal }: { to: string; icon?: typ
     <NavLink
       to={to}
       className={({ isActive }) =>
-        cn(
-          "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all",
-          isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-        )
-      }
-    >
+        cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all", isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground")
+      }>
       {({ isActive }) => (
         <>
           {Icon && <Icon className={cn("h-5 w-5 flex-shrink-0", isActive && "text-primary")} />}
@@ -108,7 +88,7 @@ function ExternalLinks() {
   const { t } = useTranslation();
   return (
     <>
-      <NavItem to="https://docs.evolutionfoundation.com.br/" icon={FileQuestion} label={t("sidebar.documentation")} isExternal />
+      <NavItem to="/manager/docs" icon={FileQuestion} label={t("sidebar.documentation")} />
     </>
   );
 }
@@ -138,6 +118,7 @@ function InstanceSidebar() {
     () => [
       { id: "dashboard", title: t("sidebar.dashboard"), icon: LayoutDashboard, path: "dashboard" },
       { id: "chat", title: t("sidebar.chat"), icon: MessageCircle, path: "chat" },
+      { id: "forms", title: "Formulários", icon: ClipboardList, path: "forms" },
       {
         title: t("sidebar.configurations"),
         icon: Cog,
@@ -177,7 +158,7 @@ function InstanceSidebar() {
   const visibleMenus = useMemo(
     () =>
       menus
-        .filter((menu) => account?.role !== "user" || ("id" in menu && menu.id === "chat"))
+        .filter((menu) => account?.role !== "user" || ("id" in menu && (menu.id === "chat" || menu.id === "forms")))
         .map((menu) => {
           if ("children" in menu) {
             return { ...menu, children: menu.children.filter((c) => shouldShow(c.id)) };
@@ -204,8 +185,7 @@ function InstanceSidebar() {
                 className={cn(
                   "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all",
                   groupActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
+                )}>
                 <menu.icon className={cn("h-5 w-5 flex-shrink-0", groupActive && "text-primary")} />
                 <span>{menu.title}</span>
                 <ChevronDown className="ml-auto h-4 w-4 transition-transform data-[state=open]:rotate-180" />
@@ -215,13 +195,7 @@ function InstanceSidebar() {
                   <NavLink
                     key={child.id}
                     to={`${base}/${child.path}`}
-                    className={({ isActive }) =>
-                      cn(
-                        "rounded-md px-3 py-1.5 text-sm transition-all",
-                        isActive ? "text-primary font-medium" : "text-muted-foreground hover:text-foreground",
-                      )
-                    }
-                  >
+                    className={({ isActive }) => cn("rounded-md px-3 py-1.5 text-sm transition-all", isActive ? "text-primary font-medium" : "text-muted-foreground hover:text-foreground")}>
                     {child.title}
                   </NavLink>
                 ))}

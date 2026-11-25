@@ -39,6 +39,7 @@ const sendMedia = async ({ instanceName, token, data }: SendMediaParams) => {
       mediatype: data.mediaMessage.mediatype,
       mimetype: data.mediaMessage.mimetype,
       caption: data.mediaMessage.caption,
+      signMessage: data.signMessage,
       media: data.mediaMessage.media, // Base64 string
       fileName: data.mediaMessage.fileName,
       quoted: data.quoted,
@@ -95,7 +96,12 @@ export function useSendMessage() {
 }
 
 export function useSendMedia() {
-  const sendMediaMutation = useManageMutation(sendMedia);
+  const sendMediaMutation = useManageMutation(sendMedia, {
+    invalidateKeys: [
+      ["chats", "findMessages"],
+      ["chats", "findChats"],
+    ],
+  });
 
   return {
     sendMedia: sendMediaMutation,

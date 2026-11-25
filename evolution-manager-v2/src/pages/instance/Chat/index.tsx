@@ -44,8 +44,10 @@ function Chat() {
   const [realtimeChats, setRealtimeChats] = useState<ChatType[]>([]);
   const [unreadOverrides, setUnreadOverrides] = useState<Record<string, number>>({});
   const seenMessageIdsRef = useRef(new Set<string>());
+  const realtimeUnreadIdsRef = useRef(new Map<string, Set<string>>());
   const activeChatRef = useRef<string | undefined>(undefined);
   const serverUnreadRef = useRef<Record<string, number>>({});
+  const previousServerUnreadRef = useRef(new Map<string, number>());
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ChatKind>("contacts");
   const [contactsOpen, setContactsOpen] = useState(false);
@@ -93,6 +95,7 @@ function Chat() {
 
   useEffect(() => {
     seenMessageIdsRef.current.clear();
+    realtimeUnreadIdsRef.current.clear();
     setUnreadOverrides({});
   }, [instance?.id]);
 
@@ -107,7 +110,10 @@ function Chat() {
 
     const socket = connectSocket(serverUrl, instance.token, instance.name);
 
-    const handle = (data: { instance?: string; data?: { key?: { id?: string; fromMe?: boolean; remoteJid?: string; profilePictureUrl?: string }; pushName?: string } }) => {
+    const handle = (data: {
+      instance?: string;
+      data?: { key?: { id?: string; fromMe?: boolean; remoteJid?: string; profilePictureUrl?: string }; pushName?: string; status?: string };
+    }) => {
       if (!instance || data.instance !== instance.name) return;
       const jid = data?.data?.key?.remoteJid;
       if (!jid) return;
@@ -117,12 +123,17 @@ function Chat() {
       if (key?.fromMe === false && messageId && !seenMessageIdsRef.current.has(messageId)) {
         seenMessageIdsRef.current.add(messageId);
         if (seenMessageIdsRef.current.size > 5000) seenMessageIdsRef.current.delete(seenMessageIdsRef.current.values().next().value!);
-        if (activeChatRef.current !== jid) {
-          setUnreadOverrides((current) => ({
-            ...current,
-            [jid]: current[jid] === undefined ? Math.max(serverUnreadRef.current[jid] || 0, 1) : current[jid] + 1,
-          }));
-        }
+      }
+
+      // The list badge counts only messages still awaiting a read receipt.
+      if (key?.fromMe === false && key.id && data.data?.status === "DELIVERY_ACK" && activeChatRef.current !== jid) {
+        const unreadIds = realtimeUnreadIdsRef.current.get(jid) || new Set<string>();
+        unreadIds.add(key.id);
+        realtimeUnreadIdsRef.current.set(jid, unreadIds);
+        setUnreadOverrides((current) => ({
+          ...current,
+          [jid]: Math.max(current[jid] ?? serverUnreadRef.current[jid] ?? 0, (serverUnreadRef.current[jid] || 0) + unreadIds.size),
+        }));
       }
 
       setRealtimeChats((prev) => {
@@ -159,6 +170,24 @@ function Chat() {
     };
   }, [instance, instance?.name]);
 
+  useEffect(() => {
+    (chats || []).forEach((chat) => {
+      const serverCount = chat.unreadCount || 0;
+      const override = unreadOverrides[chat.remoteJid];
+      const previousServerCount = previousServerUnreadRef.current.get(chat.remoteJid);
+      if (override > 0 && (serverCount >= override || (previousServerCount !== undefined && serverCount < previousServerCount))) {
+        setUnreadOverrides((current) => {
+          if (current[chat.remoteJid] !== override) return current;
+          const next = { ...current };
+          delete next[chat.remoteJid];
+          return next;
+        });
+        realtimeUnreadIdsRef.current.delete(chat.remoteJid);
+      }
+      previousServerUnreadRef.current.set(chat.remoteJid, serverCount);
+    });
+  }, [chats, unreadOverrides]);
+
   const scrollToBottom = useCallback(() => {
     lastMessageRef.current?.scrollIntoView({});
   }, []);
@@ -174,6 +203,7 @@ function Chat() {
 
   const handleChat = (jid: string) => {
     activeChatRef.current = jid;
+    realtimeUnreadIdsRef.current.delete(jid);
     setUnreadOverrides((current) => ({ ...current, [jid]: 0 }));
     navigate(`/manager/instance/${instanceId}/chat/${jid}`);
   };
@@ -349,7 +379,13 @@ function Chat() {
                     <div className="min-w-0 flex-1">
                       <div className="mb-0.5 flex items-center justify-between gap-2">
                         <p className={cn("truncate font-medium", unreadCount > 0 && "font-semibold")}>{name}</p>
-                        {unreadCount > 0 && <span aria-label={`${unreadCount} mensagens não lidas`} className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+                        {unreadCount > 0 && (
+                          <span
+                            aria-label={`${unreadCount} mensagens não lidas`}
+                            className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">
+                            {unreadCount > 99 ? "99+" : unreadCount}
+                          </span>
+                        )}
                       </div>
                       <p className="truncate text-sm text-muted-foreground">{formatJid(chat.remoteJid)}</p>
                     </div>

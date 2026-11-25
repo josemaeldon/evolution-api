@@ -1,7 +1,8 @@
 import { Avatar, AvatarImage } from "@evoapi/design-system/avatar";
 import { Button } from "@evoapi/design-system/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { LogOut } from "lucide-react";
+import { ClipboardList, LayoutDashboard, LogOut, Menu, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -35,7 +36,27 @@ function Header({ instanceId }: { instanceId?: string }) {
   const { data: instance } = useFetchInstance({ instanceId });
 
   return (
-    <header className="flex h-16 items-center justify-end border-b border-sidebar-border bg-sidebar px-4 shadow-sm">
+    <header className="flex h-16 items-center justify-between border-b border-sidebar-border bg-sidebar px-4 shadow-sm md:justify-end">
+      {instanceId && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" className="text-sidebar-foreground md:hidden" aria-label="Abrir menu">
+              <Menu className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => navigate("/manager")}>
+              <LayoutDashboard className="mr-2 h-4 w-4" /> Instâncias
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate(`/manager/instance/${instanceId}/chat`)}>
+              <MessageCircle className="mr-2 h-4 w-4" /> Chat
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate(`/manager/instance/${instanceId}/forms`)}>
+              <ClipboardList className="mr-2 h-4 w-4" /> Formulários
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <div className="flex items-center gap-2">
         {instanceId && instance && (
           <div className="mr-2 flex items-center gap-2 rounded-md bg-sidebar-accent/50 px-3 py-1.5">
@@ -47,12 +68,7 @@ function Header({ instanceId }: { instanceId?: string }) {
         )}
         <LanguageToggle />
         <ModeToggle />
-        <Button
-          onClick={() => setLogoutConfirmation(true)}
-          variant="ghost"
-          size="sm"
-          className="gap-2 text-sidebar-foreground hover:bg-sidebar-accent"
-        >
+        <Button onClick={() => setLogoutConfirmation(true)} variant="ghost" size="sm" className="gap-2 text-sidebar-foreground hover:bg-sidebar-accent">
           <LogOut className="h-4 w-4" />
           {t("header.logout.action")}
         </Button>

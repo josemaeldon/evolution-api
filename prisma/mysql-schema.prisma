@@ -114,6 +114,7 @@ model Instance {
   EvoaiSetting            EvoaiSetting?
   Pusher                  Pusher?
   PixPaymentLink          PixPaymentLink[]
+  ChatForm                ChatForm[]
 
   @@index([companyId])
 }
@@ -168,6 +169,38 @@ model PixPaymentLink {
   @@index([instanceId])
 }
 
+model ChatForm {
+  id          String       @id @default(cuid())
+  instanceId  String
+  title       String       @db.VarChar(120)
+  description String?      @db.VarChar(1000)
+  fields      Json         @db.Json
+  createdAt   DateTime     @default(now())
+  Instance    Instance     @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  invites     ChatFormInvite[]
+
+  @@index([instanceId])
+}
+
+model ChatFormInvite {
+  id         String              @id @db.VarChar(32)
+  formId     String
+  remoteJid  String              @db.VarChar(255)
+  createdAt  DateTime            @default(now())
+  form       ChatForm            @relation(fields: [formId], references: [id], onDelete: Cascade)
+  submission ChatFormSubmission?
+
+  @@index([formId, remoteJid])
+}
+
+model ChatFormSubmission {
+  id         String         @id @default(cuid())
+  inviteId   String         @unique
+  answers    Json           @db.Json
+  createdAt  DateTime       @default(now())
+  invite     ChatFormInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+}
+
 model Session {
   id        String   @id @default(cuid())
   sessionId String   @unique
@@ -212,6 +245,9 @@ model Message {
   id                           String          @id @default(cuid())
   key                          Json            @db.Json
   pushName                     String?         @db.VarChar(100)
+  managerSenderId              String?         @db.VarChar(100)
+  managerSenderName            String?         @db.VarChar(100)
+  managerSigned                Boolean         @default(false)
   participant                  String?         @db.VarChar(100)
   messageType                  String          @db.VarChar(100)
   message                      Json            @db.Json

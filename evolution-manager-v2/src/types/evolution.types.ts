@@ -77,6 +77,9 @@ export type Message = {
   id: string;
   key: Key;
   pushName: string;
+  managerSenderId?: string | null;
+  managerSenderName?: string | null;
+  managerSigned?: boolean;
   messageType: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   message: any;
@@ -99,6 +102,7 @@ export type QuotedMessage = {
 export type SendText = {
   number: string;
   text: string;
+  signMessage?: boolean;
   quoted?: QuotedMessage;
   options?: {
     delay?: number;
@@ -109,6 +113,7 @@ export type SendText = {
 
 export type SendMedia = {
   number: string;
+  signMessage?: boolean;
   quoted?: QuotedMessage;
   mediaMessage: {
     mediatype: "image" | "video" | "audio" | "document";

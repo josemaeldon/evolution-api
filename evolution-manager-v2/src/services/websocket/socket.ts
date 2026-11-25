@@ -3,6 +3,21 @@ import { getToken, TOKEN_ID } from "@/lib/queries/token";
 
 type SocketEntry = { socket: Socket; users: number };
 const activeSockets = new Map<string, SocketEntry>();
+const socketAvailability = new Map<string, Promise<boolean>>();
+const unavailableSockets = new Set<string>();
+
+const supportsSocket = (serverUrl: string): Promise<boolean> => {
+  const origin = new URL(serverUrl).origin;
+  const cached = socketAvailability.get(origin);
+  if (cached) return cached;
+
+  const check = fetch(`${origin}/`)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((info) => info?.websocketEnabled === true)
+    .catch(() => false);
+  socketAvailability.set(origin, check);
+  return check;
+};
 
 export interface WebSocketConnection {
   _socket?: Socket;
@@ -19,7 +34,7 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
   const existing = activeSockets.get(key);
   if (existing) {
     existing.users += 1;
-    return createSocketWrapper(existing.socket);
+    return createSocketWrapper(existing.socket, key, serverUrl);
   }
 
   // Create new socket connection
@@ -48,9 +63,11 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
   });
 
   socket.on("connect_error", (error) => {
-    const status = (error as Error & { context?: { status?: number } }).context?.status;
+    const context = (error as Error & { context?: { status?: number; target?: { status?: number } } }).context;
+    const status = context?.status ?? context?.target?.status;
     if (status === 404 || status === 403 || status === 401) {
       // A disabled Socket.IO endpoint or rejected key will not recover by retrying.
+      unavailableSockets.add(key);
       socket.io.opts.reconnection = false;
       socket.disconnect();
       console.warn(`Socket.IO indisponível em ${serverUrl} (HTTP ${status}); usando atualização periódica.`);
@@ -67,7 +84,7 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
     console.error(`🔄❌ WebSocket reconnection error to ${serverUrl}:`, error);
   });
 
-  return createSocketWrapper(socket);
+  return createSocketWrapper(socket, key, serverUrl);
 };
 
 export const disconnectSocket = (connection: WebSocketConnection | Socket): void => {
@@ -84,7 +101,7 @@ export const disconnectSocket = (connection: WebSocketConnection | Socket): void
 };
 
 // Create a wrapper that provides a consistent interface
-const createSocketWrapper = (socket: Socket): WebSocketConnection => {
+const createSocketWrapper = (socket: Socket, key: string, serverUrl: string): WebSocketConnection => {
   const listeners = new Map<string, Set<(data: any) => void>>();
   return {
     _socket: socket,
@@ -98,9 +115,12 @@ const createSocketWrapper = (socket: Socket): WebSocketConnection => {
       listeners.delete(event);
     },
     connect: () => {
-      if (!socket.connected) {
-        socket.connect();
-      }
+      if (unavailableSockets.has(key)) return;
+      supportsSocket(serverUrl).then((enabled) => {
+        if (enabled && !unavailableSockets.has(key) && activeSockets.get(key)?.socket === socket && !socket.connected) {
+          socket.connect();
+        }
+      });
     },
     disconnect: () => {
       socket.disconnect();
