@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { Form, FormSelect } from "@/components/ui/form";
 import { useTheme } from "@/components/theme-provider";
+import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
 
 import { verifyCreds } from "@/lib/queries/auth/verifyCreds";
 import { verifyGoServer } from "@/lib/queries/auth/verifyGoServer";
@@ -32,10 +33,7 @@ function Login() {
   const { theme } = useTheme();
   const [loginError, setLoginError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const logoSrc =
-    theme === "dark"
-      ? "https://evolution-api.com/files/evo/evolution-logo-white.svg"
-      : "https://evolution-api.com/files/evo/evolution-logo.svg";
+  const logoSrc = theme === "dark" ? CLOUD_BR_CHAT_LOGO_DARK : CLOUD_BR_CHAT_LOGO;
 
   const loginForm = useForm<LoginSchema>({
     resolver: zodResolver(loginSchema),
@@ -74,7 +72,7 @@ function Login() {
           }
         } catch (err) {
           // If /license/* itself is unreachable, fall through to the normal login flow —
-          // older Evolution API builds without the licensing module behave this way.
+          // Older server builds without the licensing module behave this way.
           console.warn("[license] status check skipped:", err);
         }
       }
@@ -129,7 +127,7 @@ function Login() {
     <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-t from-primary/20 via-background/95 to-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center text-center">
-          <img src={logoSrc} alt="Evolution API" className="mb-3 h-10" />
+          <img src={logoSrc} alt="CloudBR Chat" className="mb-3 h-12 w-auto" />
           <p className="text-sm text-muted-foreground">{t("login.description")}</p>
         </div>
 
@@ -158,7 +156,7 @@ function Login() {
                   name="provider"
                   label="Provider"
                   options={[
-                    { value: "api", label: "Evolution API" },
+                    { value: "api", label: "API WhatsApp" },
                     { value: "go", label: "Evolution GO" },
                   ]}
                 />
@@ -208,7 +206,7 @@ function Login() {
 
         <div className="text-center text-xs text-muted-foreground">
           <p>
-            © {new Date().getFullYear()} Evolution API ·{" "}
+            © {new Date().getFullYear()} CloudBR Chat ·{" "}
             <a href="https://docs.evolutionfoundation.com.br/" target="_blank" rel="noreferrer" className="underline hover:text-primary">
               Documentação
             </a>

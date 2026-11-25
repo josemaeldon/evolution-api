@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useFetchInstance } from "@/lib/queries/instance/fetchInstance";
 import { logout } from "@/lib/queries/token";
+import { CLOUD_BR_CHAT_MARK } from "@/lib/branding";
 
 import { LanguageToggle } from "./language-toggle";
 import { ModeToggle } from "./mode-toggle";
@@ -30,7 +31,7 @@ function Header({ instanceId }: { instanceId?: string }) {
         {instanceId && instance && (
           <div className="mr-2 flex items-center gap-2 rounded-md bg-sidebar-accent/50 px-3 py-1.5">
             <Avatar className="h-6 w-6">
-              <AvatarImage src={instance.profilePicUrl || "/assets/images/evolution-logo.png"} alt={instance.name} />
+              <AvatarImage src={instance.profilePicUrl || CLOUD_BR_CHAT_MARK} alt={instance.name} />
             </Avatar>
             <span className="text-sm font-medium text-sidebar-foreground">{instance.profileName || instance.name}</span>
           </div>

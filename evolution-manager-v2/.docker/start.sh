@@ -1,6 +1,6 @@
 #!/bin/sh
 
-echo "Starting Evolution Manager v2..."
+echo "Starting CloudBR Chat..."
 
 # Start nginx
 nginx -g "daemon off;"

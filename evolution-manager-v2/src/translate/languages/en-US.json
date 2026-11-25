@@ -247,7 +247,7 @@
     }
   },
   "login": {
-    "title": "Evolution Manager",
+    "title": "CloudBR Chat",
     "description": "Please enter your credentials to continue",
     "form": {
       "serverUrl": "Server URL",

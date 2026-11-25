@@ -1,14 +1,14 @@
 {
-  "name": "evolution-manager",
+  "name": "cloudbr-chat-manager",
   "private": false,
   "version": "2.0.0",
   "type": "module",
-  "description": "Modern web interface for Evolution API management",
+  "description": "CloudBR Chat management interface",
   "keywords": [
     "whatsapp",
     "api",
     "chatbot",
-    "evolution-api",
+    "cloudbr-chat",
     "react",
     "typescript",
     "management",

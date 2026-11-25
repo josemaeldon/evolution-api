@@ -10,10 +10,7 @@ const bundleName = readdirSync(assets).find((file) => /^index-.*\.js$/.test(file
 if (!bundleName) throw new Error('Manager JavaScript bundle not found');
 
 const bundlePath = join(assets, bundleName);
-const localizedBundle = readFileSync(bundlePath, 'utf8').replace(
-  /https:\/\/evolution-api\.com\/files\/evo\/evolution-logo(?:-white)?\.svg/g,
-  '/assets/images/evolution-logo.png',
-);
+const localizedBundle = readFileSync(bundlePath, 'utf8');
 const version = createHash('sha256').update(localizedBundle).digest('hex').slice(0, 12);
 const localBundleName = 'index-local-assets.js';
 
@@ -22,6 +19,5 @@ unlinkSync(bundlePath);
 
 const indexPath = join(dist, 'index.html');
 const index = readFileSync(indexPath, 'utf8')
-  .replace('https://evolution-api.com/files/evo/favicon.svg', '/assets/images/evolution-logo.png')
-  .replace(`/assets/${bundleName}`, `/assets/${localBundleName}?v=${version}`);
+  .replace(bundleName, `${localBundleName}?v=${version}`);
 writeFileSync(indexPath, index);

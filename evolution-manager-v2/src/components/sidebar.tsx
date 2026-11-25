@@ -1,7 +1,6 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@evoapi/design-system/collapsible";
 import {
   ChevronDown,
-  CircleHelp,
   Cog,
   FileQuestion,
   IterationCcw,
@@ -14,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { useTheme } from "@/components/theme-provider";
+import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
 import { useInstance } from "@/contexts/InstanceContext";
 
 import { FEATURES, FeatureKey, isFeatureEnabled } from "@/lib/provider/features";
@@ -42,15 +42,12 @@ type Menu = MenuLeaf | MenuGroup;
 function SidebarShell({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) {
   const currentYear = new Date().getFullYear();
   const { theme } = useTheme();
-  const logoSrc =
-    theme === "dark"
-      ? "https://evolution-api.com/files/evo/evolution-logo-white.svg"
-      : "https://evolution-api.com/files/evo/evolution-logo.svg";
+  const logoSrc = theme === "dark" ? CLOUD_BR_CHAT_LOGO_DARK : CLOUD_BR_CHAT_LOGO;
 
   return (
     <aside className="hidden md:flex bg-sidebar text-sidebar-foreground flex-col w-56 border-r border-sidebar-border">
       <div className="h-16 flex items-center px-4 border-b border-sidebar-border">
-        <img src={logoSrc} alt="Evolution API" className="h-7" />
+        <img src={logoSrc} alt="CloudBR Chat" className="h-8 w-auto" />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-1">
@@ -64,7 +61,7 @@ function SidebarShell({ children, footer }: { children: React.ReactNode; footer?
       )}
 
       <div className="p-4 border-t border-sidebar-border">
-        <div className="text-sm font-medium text-primary">Evolution Manager</div>
+        <div className="text-sm font-medium text-primary">CloudBR Chat</div>
         <div className="mt-1 text-xs text-muted-foreground">© {currentYear} All rights reserved</div>
       </div>
     </aside>
@@ -110,8 +107,6 @@ function ExternalLinks() {
   return (
     <>
       <NavItem to="https://docs.evolutionfoundation.com.br/" icon={FileQuestion} label={t("sidebar.documentation")} isExternal />
-      <NavItem to="https://evolution-api.com/postman" icon={CircleHelp} label={t("sidebar.postman")} isExternal />
-      <NavItem to="https://evolution-api.com/discord" icon={MessageCircle} label={t("sidebar.discord")} isExternal />
     </>
   );
 }

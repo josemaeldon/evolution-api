@@ -229,6 +229,7 @@ export class ChatwootService {
     }
 
     this.logger.log('Creating chatwoot bot contact');
+    const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
     const contact =
       (await this.findContact(instance, '123456')) ||
       ((await this.createContact(
@@ -236,8 +237,8 @@ export class ChatwootService {
         '123456',
         inboxId,
         false,
-        organization ? organization : 'EvolutionAPI',
-        logo ? logo : 'https://evolution-api.com/files/evolution-api-favicon.png',
+        organization ? organization : 'CloudBR Chat',
+        logo || (serverUrl ? `${serverUrl.replace(/\/$/, '')}/manager/assets/images/cloudbr-chat-mark.svg` : ''),
       )) as any);
 
     if (!contact) {

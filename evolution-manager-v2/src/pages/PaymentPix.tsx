@@ -4,6 +4,8 @@ import QRCode from "react-qr-code";
 import { useParams } from "react-router-dom";
 
 import { Button } from "@evoapi/design-system/button";
+import { useTheme } from "@/components/theme-provider";
+import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
 
 type Charge = {
   key: string;
@@ -16,6 +18,7 @@ type Charge = {
 };
 
 export default function PaymentPix() {
+  const { theme } = useTheme();
   const { token } = useParams<{ token: string }>();
   const [charge, setCharge] = useState<Charge | null>(null);
   const [error, setError] = useState("");
@@ -44,6 +47,7 @@ export default function PaymentPix() {
 
   return <main className="min-h-screen bg-background px-4 py-10 text-foreground">
     <div className="mx-auto max-w-lg rounded-2xl border bg-card p-6 shadow-sm">
+      <img src={theme === "dark" ? CLOUD_BR_CHAT_LOGO_DARK : CLOUD_BR_CHAT_LOGO} alt="CloudBR Chat" className="mb-6 h-11 w-auto" />
       <h1 className="text-2xl font-semibold">Pagamento via Pix</h1>
       {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
       {!charge && !error && <p className="mt-5 text-muted-foreground">Carregando cobrança...</p>}
