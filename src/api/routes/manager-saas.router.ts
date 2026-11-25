@@ -32,6 +32,7 @@ const safeUser = (user: {
   email: string;
   role: string;
   active: boolean;
+  signMessages: boolean;
 }) => ({
   id: user.id,
   companyId: user.companyId,
@@ -39,6 +40,7 @@ const safeUser = (user: {
   email: user.email,
   role: user.role,
   active: user.active,
+  signMessages: user.signMessages,
 });
 
 router.post('/login', async (req, res) => {
@@ -206,13 +208,15 @@ router.patch('/users/:userId', async (req, res) => {
   const name = req.body?.name === undefined ? target.name : String(req.body.name).trim();
   const role = req.body?.role === undefined ? target.role : req.body.role;
   const active = req.body?.active === undefined ? target.active : req.body.active;
+  const signMessages = req.body?.signMessages === undefined ? target.signMessages : req.body.signMessages;
   const email = req.body?.email === undefined ? target.email : normalizeEmail(req.body.email);
   if (
     !name ||
     name.length > 255 ||
     !/^\S+@\S+\.\S+$/.test(email) ||
     !['admin', 'user'].includes(role) ||
-    typeof active !== 'boolean'
+    typeof active !== 'boolean' ||
+    typeof signMessages !== 'boolean'
   ) {
     return res.status(400).json(fail('Dados inválidos'));
   }
@@ -231,6 +235,7 @@ router.patch('/users/:userId', async (req, res) => {
       email,
       role,
       active,
+      signMessages,
       ...(req.body?.password === undefined ? {} : { passwordHash: await passwordHash(req.body.password) }),
     },
   });

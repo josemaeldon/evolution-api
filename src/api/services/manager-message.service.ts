@@ -5,7 +5,7 @@ import { Request } from 'express';
 
 import { getManagerPrincipal } from './manager-saas.service';
 
-export type ManagerSender = { id: string; name: string };
+export type ManagerSender = { id: string; name: string; signMessages: boolean };
 type SentMessage = { key?: { id?: string; remoteJid?: string }; instanceId?: string; [key: string]: unknown };
 const logger = new Logger('ManagerMessageService');
 
@@ -14,7 +14,7 @@ export async function managerSender(req: Request): Promise<ManagerSender | null>
   if (!principal?.userId || !principal.companyId) return null;
   return prismaRepository.managerUser.findFirst({
     where: { id: principal.userId, companyId: principal.companyId, active: true },
-    select: { id: true, name: true },
+    select: { id: true, name: true, signMessages: true },
   });
 }
 

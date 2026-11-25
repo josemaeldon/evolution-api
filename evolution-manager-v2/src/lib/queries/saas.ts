@@ -10,6 +10,7 @@ export type ManagerAccount = {
   name: string;
   email?: string;
   role: "superadmin" | "admin" | "user";
+  signMessages?: boolean;
   company?: { id: string; name: string };
 };
 
@@ -29,6 +30,7 @@ export type ManagerUser = {
   email: string;
   role: "admin" | "user";
   active: boolean;
+  signMessages: boolean;
 };
 
 export type UnassignedInstance = { id: string; name: string; connectionStatus: string };

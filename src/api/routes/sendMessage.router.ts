@@ -61,7 +61,7 @@ export class MessageRouter extends RouterBroker {
       })
       .post(this.routerPath('sendText'), ...guards, async (req, res) => {
         const sender = await managerSender(req);
-        const signed = !!sender && req.body?.signMessage === true;
+        const signed = !!sender?.signMessages;
         const response = await this.dataValidate<SendTextDto>({
           request: req,
           schema: textMessageSchema,
@@ -79,8 +79,7 @@ export class MessageRouter extends RouterBroker {
       })
       .post(this.routerPath('sendMedia'), ...guards, upload.single('file'), async (req, res) => {
         const sender = await managerSender(req);
-        const signed =
-          !!sender && req.body?.signMessage === true && ['image', 'video', 'document'].includes(req.body?.mediatype);
+        const signed = !!sender?.signMessages && ['image', 'video', 'document'].includes(req.body?.mediatype);
         const bodyData = req.body;
         if (signed) bodyData.caption = signedText(sender.name, String(bodyData.caption || ''));
 

@@ -6,7 +6,6 @@ import { toast } from "react-toastify";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
 import { Button } from "@evoapi/design-system/button";
-import { Switch } from "@evoapi/design-system/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -421,8 +420,6 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const locale = i18n.language;
   const { instance } = useInstance();
   const { data: managerAccount } = useManagerAccount();
-  const signaturePreferenceKey = managerAccount?.id ? `chat-signature:${managerAccount.id}` : null;
-  const [signMessages, setSignMessages] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
@@ -448,10 +445,6 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const { sendAudio: sendAudioMutation } = useSendAudio();
 
   const { remoteJid } = useParams<{ remoteJid: string }>();
-
-  useEffect(() => {
-    setSignMessages(signaturePreferenceKey ? localStorage.getItem(signaturePreferenceKey) === "true" : false);
-  }, [signaturePreferenceKey]);
 
   useEffect(() => setRecordingActive(false), [remoteJid]);
 
@@ -479,7 +472,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         data: {
           number: remoteJid,
           text: messageText.trim(),
-          signMessage: signMessages,
+          signMessage: managerAccount?.signMessages === true,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
         },
       });
@@ -523,7 +516,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         token: instance.token,
         data: {
           number: remoteJid,
-          signMessage: signMessages,
+          signMessage: managerAccount?.signMessages === true,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
           mediaMessage: {
             mediatype: selectedMedia.type.split("/")[0] === "application" ? "document" : (selectedMedia.type.split("/")[0] as "audio" | "video" | "image" | "document"),
@@ -1022,22 +1015,6 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         </div>
         <div className="flex-shrink-0 border-t bg-background p-3">
           <div className="rounded-lg border border-border bg-card shadow-sm">
-            {managerAccount?.id && (
-              <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-1.5">
-                <label htmlFor="sign-chat-messages" className="min-w-0 text-xs text-muted-foreground">
-                  Assinar textos e legendas como <span className="font-semibold text-foreground">{managerAccount.name}</span>
-                </label>
-                <Switch
-                  id="sign-chat-messages"
-                  checked={signMessages}
-                  onCheckedChange={(checked) => {
-                    setSignMessages(checked);
-                    if (signaturePreferenceKey) localStorage.setItem(signaturePreferenceKey, String(checked));
-                  }}
-                  aria-label="Assinar mensagens com meu nome"
-                />
-              </div>
-            )}
             {replyTo && (
               <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
                 <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />

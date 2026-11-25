@@ -34,6 +34,7 @@ export default function Companies() {
   const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState<"admin" | "user">("user");
   const [editActive, setEditActive] = useState(true);
+  const [editSignMessages, setEditSignMessages] = useState(false);
   const [editPassword, setEditPassword] = useState("");
 
   const openEdit = (user: ManagerUser) => {
@@ -42,6 +43,7 @@ export default function Companies() {
     setEditEmail(user.email);
     setEditRole(user.role);
     setEditActive(user.active);
+    setEditSignMessages(user.signMessages);
     setEditPassword("");
   };
 
@@ -54,6 +56,7 @@ export default function Companies() {
         email: editEmail.trim(),
         role: editRole,
         active: editActive,
+        signMessages: editSignMessages,
         ...(editPassword ? { password: editPassword } : {}),
       });
       setEditingUser(null);
@@ -289,7 +292,7 @@ export default function Companies() {
                   <div key={user.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                     <div className="min-w-0">
                       <p className="font-medium">
-                        {user.name} <span className="text-xs text-muted-foreground">({user.role === "admin" ? "Administrador" : "Chat"})</span>
+                        {user.name} <span className="text-xs text-muted-foreground">({user.role === "admin" ? "Administrador" : "Chat"}{user.signMessages ? " · Assina mensagens" : ""})</span>
                       </p>
                       <p className="break-all text-sm text-muted-foreground">{user.email}</p>
                     </div>
@@ -337,6 +340,13 @@ export default function Companies() {
             </select>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={editActive} disabled={editingUser?.id === account?.id} onChange={(event) => setEditActive(event.target.checked)} /> Usuário ativo
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" checked={editSignMessages} onChange={(event) => setEditSignMessages(event.target.checked)} />
+              <span>
+                Assinar textos e legendas
+                <span className="block text-xs text-muted-foreground">Inclui o nome deste usuário nas mensagens de texto, imagens, vídeos e documentos enviados pelo chat.</span>
+              </span>
             </label>
             <Input
               aria-label="Nova senha"

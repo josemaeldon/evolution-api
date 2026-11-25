@@ -140,6 +140,7 @@ model ManagerUser {
   passwordHash String         @db.VarChar(255)
   role         String         @db.VarChar(20)
   active       Boolean        @default(true)
+  signMessages Boolean        @default(false)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   sessions     ManagerSession[]
