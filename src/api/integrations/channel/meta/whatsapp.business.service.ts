@@ -23,6 +23,7 @@ import { ChannelStartupService } from '@api/services/channel.service';
 import { Events, wa } from '@api/types/wa.types';
 import { AudioConverter, Chatwoot, ConfigService, Database, Openai, S3, WaBusiness } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
+import { copyCodeFallback } from '@utils/copyCodeFallback';
 import { createJid } from '@utils/createJid';
 import { status } from '@utils/renderStatus';
 import { sendTelemetry } from '@utils/sendTelemetry';
@@ -1457,6 +1458,12 @@ export class BusinessStartupService extends ChannelStartupService {
   }
 
   public async buttonMessage(data: SendButtonsDto) {
+    const fallbackText = copyCodeFallback(data);
+    if (fallbackText) {
+      // Cloud API reply buttons cannot carry an arbitrary copy-code action.
+      return await this.textMessage({ ...data, text: fallbackText });
+    }
+
     const embeddedMedia: any = {};
 
     const btnItems = {

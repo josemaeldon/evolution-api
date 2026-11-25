@@ -80,6 +80,7 @@ import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { Boom } from '@hapi/boom';
 import { createId as cuid } from '@paralleldrive/cuid2';
 import { Instance, Message } from '@prisma/client';
+import { copyCodeFallback } from '@utils/copyCodeFallback';
 import { createJid } from '@utils/createJid';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
 import { makeProxyAgent, makeProxyAgentUndici } from '@utils/makeProxyAgent';
@@ -3313,7 +3314,6 @@ export class BaileysStartupService extends ChannelStartupService {
       copy: () =>
         toString({
           display_text: button.displayText,
-          id: button.id ?? this.generateRandomId(),
           copy_code: button.copyCode,
         }),
       url: () => toString({ display_text: button.displayText, url: button.url, merchant_url: button.url }),
@@ -3469,13 +3469,26 @@ export class BaileysStartupService extends ChannelStartupService {
       },
     };
 
-    return await this.sendMessageWithTyping(data.number, message, {
-      delay: data?.delay,
-      presence: 'composing',
-      quoted: data?.quoted,
-      mentionsEveryOne: data?.mentionsEveryOne,
-      mentioned: data?.mentioned,
-    });
+    const fallbackText = copyCodeFallback(data);
+    let interactiveResult: Awaited<ReturnType<typeof this.sendMessageWithTyping>>;
+    try {
+      interactiveResult = await this.sendMessageWithTyping(data.number, message, {
+        delay: data?.delay,
+        presence: 'composing',
+        quoted: data?.quoted,
+        mentionsEveryOne: data?.mentionsEveryOne,
+        mentioned: data?.mentioned,
+      });
+    } catch (error) {
+      if (!fallbackText) throw error;
+      this.logger.warn(`Copy button could not be sent as an interactive message: ${error}`);
+    }
+
+    if (!fallbackText) return interactiveResult;
+
+    // Native-flow copy buttons are not rendered by every WhatsApp client.
+    // Send the same code as ordinary text so it remains visible and selectable everywhere.
+    return await this.textMessage({ ...data, text: fallbackText, delay: 0 });
   }
 
   public async locationMessage(data: SendLocationDto) {
