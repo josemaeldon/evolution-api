@@ -92,7 +92,7 @@ function Login() {
           return;
         }
         saveToken({ url: cleanUrl, token: data.apiKey, provider: "go" });
-        navigate("/manager/");
+        navigate("/");
         return;
       }
 
@@ -120,7 +120,7 @@ function Login() {
         token: data.apiKey,
         provider: "api",
       });
-      navigate("/manager/");
+      navigate("/");
     } finally {
       setSubmitting(false);
     }
@@ -137,7 +137,7 @@ function Login() {
       logout();
       saveToken({ url: window.location.origin, provider: "api" });
       localStorage.setItem("managerSaas", "company");
-      window.location.assign("/manager/");
+      window.location.assign("/");
     } catch {
       setLoginError("E-mail ou senha inválidos, ou empresa inativa.");
     } finally {

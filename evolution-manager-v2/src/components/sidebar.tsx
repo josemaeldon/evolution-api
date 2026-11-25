@@ -1,10 +1,13 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@evoapi/design-system/collapsible";
-import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap } from "lucide-react";
-import { useMemo } from "react";
+import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap, Info } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
 
+import { Button } from "@evoapi/design-system/button";
+import { Badge } from "@evoapi/design-system/badge";
 import { useTheme } from "@/components/theme-provider";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
 import { useInstance } from "@/contexts/InstanceContext";
 import { useManagerAccount } from "@/lib/queries/saas";
@@ -86,9 +89,30 @@ function NavItem({ to, icon: Icon, label, isExternal }: { to: string; icon?: typ
 
 function ExternalLinks() {
   const { t } = useTranslation();
+  const { theme } = useTheme();
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const logoSrc = theme === "dark" ? CLOUD_BR_CHAT_LOGO_DARK : CLOUD_BR_CHAT_LOGO;
   return (
     <>
       <NavItem to="/manager/docs" icon={FileQuestion} label={t("sidebar.documentation")} />
+      <Button type="button" variant="ghost" onClick={() => setAboutOpen(true)} className="w-full justify-start gap-3 px-3 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <Info className="h-5 w-5 flex-shrink-0" />
+        <span>Sobre o CloudBR Chat</span>
+      </Button>
+      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <img src={logoSrc} alt="CloudBR Chat" className="mb-2 h-10 w-auto self-start" />
+            <div className="flex flex-wrap items-center gap-2">
+              <DialogTitle>Bem-vindo ao CloudBR Chat</DialogTitle>
+              <Badge variant="secondary">Versão 3.0.0</Badge>
+            </div>
+            <DialogDescription>Gerencie suas conversas e instâncias WhatsApp em um só lugar.</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Acompanhe conversas, configure integrações e gerencie suas instâncias WhatsApp.</p>
+          <p className="border-t pt-4 text-xs text-muted-foreground">© {new Date().getFullYear()} CloudBR Chat</p>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

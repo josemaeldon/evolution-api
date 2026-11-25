@@ -26,7 +26,6 @@ import { Webhook } from "@/pages/instance/Webhook";
 import { Websocket } from "@/pages/instance/Websocket";
 import LicenseCallback from "@/pages/Login/LicenseCallback";
 import Login from "@/pages/Login";
-import Home from "@/pages/Home";
 import PaymentPix from "@/pages/PaymentPix";
 import Companies from "@/pages/Companies";
 import Documentation from "@/pages/Documentation";
@@ -36,7 +35,13 @@ import PublicChatForm from "@/pages/PublicChatForm";
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <Home />,
+    element: (
+      <ProtectedRoute>
+        <MainLayout>
+          <Dashboard />
+        </MainLayout>
+      </ProtectedRoute>
+    ),
   },
   {
     path: "/manager/payment/:token",
