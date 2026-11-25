@@ -1,7 +1,7 @@
 import type { PrismaRepository } from '@api/repository/repository.service';
 import { Auth, configService } from '@config/env.config';
 import { createPixCharge, PixCharge, PixRequestError } from '@utils/pix';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { RequestHandler } from 'express';
 import { Router } from 'express';
 
@@ -25,17 +25,29 @@ export class PixRouter {
         throw new PixRequestError('A cobrança Pix está disponível para instâncias WhatsApp Baileys');
       }
       const charge = createPixCharge(req.body);
-      const payload = Buffer.from(
-        JSON.stringify({ ...charge, instanceName: instance.name } satisfies ChargeToken),
-      ).toString('base64url');
-      const token = `${payload}.${sign(payload, instance.token)}`;
       const baseUrl = configService.get('SERVER').URL || `${req.protocol}://${req.get('host')}`;
-      const paymentUrl = new URL(`/manager/payment/${token}`, baseUrl).toString();
+      const id = randomBytes(16).toString('base64url');
+      const paymentUrl = new URL(`/manager/payment/${instance.id}/${id}`, baseUrl).toString();
       const paymentHost = new URL(paymentUrl);
       if (paymentHost.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(paymentHost.hostname)) {
         throw new PixRequestError('Configure SERVER_URL com HTTPS para enviar cobranças Pix');
       }
+      await this.repository.pixPaymentLink.create({
+        data: { id, instanceId: instance.id, charge },
+      });
       res.status(201).json({ ...charge, paymentUrl });
+    });
+
+    this.router.get('/:instanceId/:id', async (req, res) => {
+      if (!/^[A-Za-z0-9_-]{22}$/.test(req.params.id)) throw new PixRequestError('Link de pagamento inválido');
+      const instance = await this.repository.instance.findUnique({ where: { id: req.params.instanceId } });
+      if (!instance) throw new PixRequestError('Link de pagamento inválido');
+      const payment = await this.repository.pixPaymentLink.findFirst({
+        where: { id: req.params.id, instanceId: instance.id },
+      });
+      if (!payment) throw new PixRequestError('Link de pagamento inválido');
+      res.set('Cache-Control', 'no-store');
+      res.json(payment.charge);
     });
 
     this.router.get('/:token', async (req, res) => {

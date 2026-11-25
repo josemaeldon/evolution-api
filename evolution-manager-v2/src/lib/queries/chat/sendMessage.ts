@@ -41,6 +41,7 @@ const sendMedia = async ({ instanceName, token, data }: SendMediaParams) => {
       caption: data.mediaMessage.caption,
       media: data.mediaMessage.media, // Base64 string
       fileName: data.mediaMessage.fileName,
+      quoted: data.quoted,
     };
 
     const response = await api.post(`/message/sendMedia/${instanceName}`, jsonData, {
@@ -63,6 +64,7 @@ const sendAudio = async ({ instanceName, token, data }: SendAudioParams) => {
     const jsonData = {
       number: data.number,
       audio: data.audio,
+      quoted: data.quoted,
     };
 
     const response = await api.post(`/message/sendWhatsAppAudio/${instanceName}`, jsonData, {

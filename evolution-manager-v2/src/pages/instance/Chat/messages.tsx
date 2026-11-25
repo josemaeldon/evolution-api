@@ -1,10 +1,15 @@
-import { Send, User } from "lucide-react";
-import { ReactNode, RefObject, useEffect, useMemo, useState } from "react";
+import { Copy, Forward, MoreHorizontal, Reply, Send, Trash2, User, X } from "lucide-react";
+import { ReactNode, RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
 import { Button } from "@evoapi/design-system/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatImageGallery, ChatMessageImage } from "@/components/chat-image-lightbox";
 import { ChatAudioMessage } from "@/components/chat-audio-message";
@@ -17,11 +22,12 @@ import { ChatInteractiveMessage } from "@/components/chat-interactive-message";
 import { useInstance } from "@/contexts/InstanceContext";
 
 import { useFindChat } from "@/lib/queries/chat/findChat";
-import { useFindMessages } from "@/lib/queries/chat/findMessages";
+import { fetchMessagesPage } from "@/lib/queries/chat/findMessages";
 import { useSendMessage, useSendMedia, useSendAudio } from "@/lib/queries/chat/sendMessage";
+import { api } from "@/lib/queries/api";
 import { getToken, TOKEN_ID } from "@/lib/queries/token";
 
-import { Message } from "@/types/evolution.types";
+import { Message, QuotedMessage } from "@/types/evolution.types";
 
 import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
 
@@ -30,6 +36,7 @@ import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
 import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
 
 type MessagesProps = {
+  contacts?: { remoteJid: string; pushName?: string; profilePicUrl?: string }[];
   headerNameOverride?: string;
   headerActions?: ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
@@ -154,6 +161,51 @@ const getMessageText = (messageObj: any): string => {
   return String(messageObj);
 };
 
+const messageContent = (message: Message): Record<string, any> => {
+  if (typeof message.message !== "string") return message.message || {};
+  try { return JSON.parse(message.message); } catch { return { conversation: message.message }; }
+};
+
+const copyableMessageText = (message: Message): string => {
+  const content = messageContent(message);
+  const nested = content.viewOnceMessage?.message || content.viewOnceMessageV2?.message || content.ephemeralMessage?.message || content;
+  const candidates = [
+    getMessageText(nested), nested.extendedTextMessage?.text, nested.imageMessage?.caption,
+    nested.videoMessage?.caption, nested.documentMessage?.caption, nested.documentMessage?.fileName,
+    nested.documentWithCaptionMessage?.message?.documentMessage?.caption,
+    nested.buttonsResponseMessage?.selectedDisplayText, nested.listResponseMessage?.title,
+    nested.interactiveMessage?.body?.text, nested.listMessage?.description,
+    nested.pollCreationMessage?.name, nested.pollCreationMessageV3?.name,
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim())?.trim() || "";
+};
+
+const messagePreview = (message: Message): string => copyableMessageText(message) || ({
+  imageMessage: "Imagem", videoMessage: "Vídeo", audioMessage: "Áudio",
+  documentMessage: "Documento", stickerMessage: "Figurinha",
+}[message.messageType] || "Mensagem");
+
+const quotedMessage = (message: Message): QuotedMessage => ({ key: message.key, message: messageContent(message) });
+const PAGE_SIZE = 30;
+
+const quotedContentPreview = (message: Message): string | null => {
+  const content = messageContent(message);
+  const body = content.extendedTextMessage || content.imageMessage || content.videoMessage ||
+    content.audioMessage || content.documentMessage || content.documentWithCaptionMessage?.message?.documentMessage;
+  const quoted = body?.contextInfo?.quotedMessage;
+  if (!quoted) return null;
+  const text = quoted.conversation || quoted.extendedTextMessage?.text || quoted.imageMessage?.caption ||
+    quoted.videoMessage?.caption || quoted.documentMessage?.caption || quoted.documentMessage?.fileName;
+  return text || (quoted.imageMessage ? "Imagem" : quoted.videoMessage ? "Vídeo" :
+    quoted.audioMessage ? "Áudio" : quoted.documentMessage ? "Documento" : "Mensagem");
+};
+
+const QuotedContent = ({ message }: { message: Message }) => {
+  const preview = quotedContentPreview(message);
+  if (!preview) return null;
+  return <div className="mb-2 max-w-full truncate rounded border-l-2 border-current bg-black/10 px-2 py-1 text-xs opacity-80">{preview}</div>;
+};
+
 // Component to render different message types based on messageType
 const MessageContent = ({ message, instanceName, token }: { message: Message; instanceName?: string; token?: string }) => {
   const messageType = message.messageType as string;
@@ -272,8 +324,39 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
   }
 };
 
-function Messages({ headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
+const DeferredMessageContent = ({ message, instanceName, token }: { message: Message; instanceName?: string; token?: string }) => {
+  const mediaTypes = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "documentWithCaptionMessage", "stickerMessage"];
+  const isMedia = mediaTypes.includes(message.messageType);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!isMedia || visible) return;
+    const element = containerRef.current;
+    if (!element || !window.IntersectionObserver) {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "400px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isMedia, visible]);
+
+  if (!isMedia) return <MessageContent message={message} instanceName={instanceName} token={token} />;
+  return <div ref={containerRef} className={visible ? undefined : "min-h-20 min-w-32"}>
+    {visible ? <MessageContent message={message} instanceName={instanceName} token={token} /> :
+      <span className="text-xs text-muted-foreground">{messagePreview(message)}</span>}
+  </div>;
+};
+
+function Messages({ contacts = [], headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const locale = i18n.language;
   const { instance } = useInstance();
   const [messageText, setMessageText] = useState("");
@@ -281,6 +364,20 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
   const [recordingActive, setRecordingActive] = useState(false);
   const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [forwardSource, setForwardSource] = useState<Message | null>(null);
+  const [forwardSearch, setForwardSearch] = useState("");
+  const [forwardSelectedJid, setForwardSelectedJid] = useState("");
+  const [forwarding, setForwarding] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
+  const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
+  const [olderPages, setOlderPages] = useState<Message[][]>([]);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const restoreScrollRef = useRef<{ height: number; top: number; expectedPages: number } | null>(null);
+  const initialScrollDoneRef = useRef(false);
+  const nearBottomRef = useRef(true);
   const { sendText: sendTextMutation } = useSendMessage();
   const { sendMedia: sendMediaMutation } = useSendMedia();
   const { sendAudio: sendAudioMutation } = useSendAudio();
@@ -297,7 +394,8 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(audio);
     });
-    await sendAudioMutation({ instanceName: instance.name, token: instance.token, data: { number: remoteJid, audio: base64 } });
+    await sendAudioMutation({ instanceName: instance.name, token: instance.token, data: { number: remoteJid, audio: base64, ...(replyTo && { quoted: quotedMessage(replyTo) }) } });
+    setReplyTo(null);
   };
 
   // Handle sending text messages
@@ -312,11 +410,13 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
         data: {
           number: remoteJid,
           text: messageText.trim(),
+          ...(replyTo && { quoted: quotedMessage(replyTo) }),
         },
       });
 
       // Clear the input after sending
       setMessageText("");
+      setReplyTo(null);
       if (textareaRef.current) {
         textareaRef.current.value = "";
         handleTextareaChange(); // Reset height
@@ -353,6 +453,7 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
         token: instance.token,
         data: {
           number: remoteJid,
+          ...(replyTo && { quoted: quotedMessage(replyTo) }),
           mediaMessage: {
             mediatype: selectedMedia.type.split("/")[0] === "application" ? "document" : (selectedMedia.type.split("/")[0] as "audio" | "video" | "image" | "document"),
             mimetype: selectedMedia.type,
@@ -366,6 +467,7 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
       // Clear the input and media after sending
       setSelectedMedia(null);
       setMessageText("");
+      setReplyTo(null);
       if (textareaRef.current) {
         textareaRef.current.value = "";
         handleTextareaChange(); // Reset height
@@ -404,11 +506,39 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
     instanceName: instance?.name,
   });
 
-  const { data: messages, isSuccess } = useFindMessages({
-    remoteJid,
-    instanceName: instance?.name,
+  const { data: messagePage } = useQuery<{ records: Message[]; pages: number }>({
+    queryKey: ["chats", "findMessages", instance?.name, remoteJid, PAGE_SIZE],
+    queryFn: () => fetchMessagesPage({ instanceName: instance!.name, remoteJid: remoteJid!, offset: PAGE_SIZE, page: 1 }),
+    enabled: !!instance?.name && !!remoteJid,
     refetchInterval: 5000,
   });
+  const messages = messagePage?.records;
+  const hasOlder = (messagePage?.pages || 0) > olderPages.length + 1;
+
+  const loadOlder = useCallback(async () => {
+    const container = scrollContainerRef.current;
+    if (!container || !hasOlder || loadingOlderRef.current || !instance?.name || !remoteJid) return;
+    loadingOlderRef.current = true;
+    restoreScrollRef.current = { height: container.scrollHeight, top: container.scrollTop, expectedPages: olderPages.length + 1 };
+    setLoadingOlder(true);
+    try {
+      const page = await fetchMessagesPage({ instanceName: instance.name, remoteJid, offset: PAGE_SIZE, page: olderPages.length + 2 });
+      setOlderPages((current) => [...current, page.records]);
+    } catch (error) {
+      restoreScrollRef.current = null;
+      toast.error("Não foi possível carregar mensagens anteriores");
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [hasOlder, instance?.name, remoteJid, olderPages.length]);
+
+  const handleHistoryScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    nearBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    if (container.scrollTop < 250) loadOlder();
+  };
 
   // Combine React Query messages with real-time updates
   const allMessages = useMemo(() => {
@@ -418,6 +548,7 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
     const messageMap = new Map();
 
     // First add all messages from React Query
+    olderPages.flat().forEach((message) => messageMap.set(message.key.id, message));
     messages.forEach((message) => messageMap.set(message.key.id, message));
 
     // Then add/update with real-time messages
@@ -425,8 +556,9 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
       messageMap.set(message.key.id, message);
     });
 
-    return Array.from(messageMap.values());
-  }, [messages, realtimeMessages]);
+    return Array.from(messageMap.values()).filter((message: Message) =>
+      !removedIds.has(message.key.id) && !message.key.deleted && message.status !== "DELETED");
+  }, [messages, olderPages, realtimeMessages, removedIds]);
 
   // Add websocket functionality for real-time message updates
   useEffect(() => {
@@ -546,30 +678,143 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
     return grouped;
   }, [allMessages, t, locale]);
 
-  useEffect(() => {
-    if (isSuccess && allMessages) {
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !messages) return;
+    if (restoreScrollRef.current) {
+      const { height, top, expectedPages } = restoreScrollRef.current;
+      if (olderPages.length < expectedPages) return;
+      container.scrollTop = top + container.scrollHeight - height;
+      restoreScrollRef.current = null;
+    } else if (!initialScrollDoneRef.current || nearBottomRef.current) {
       scrollToBottom();
+      initialScrollDoneRef.current = true;
     }
-  }, [isSuccess, allMessages, scrollToBottom]);
+    if (container.scrollHeight <= container.clientHeight + 100 && hasOlder && !loadingOlder) loadOlder();
+  }, [allMessages, messages, scrollToBottom, hasOlder, loadingOlder, loadOlder, olderPages.length]);
 
   // Clear selected media and real-time messages when switching chats
   useEffect(() => {
     setSelectedMedia(null);
     setMessageText("");
+    setReplyTo(null);
+    setForwardSource(null);
+    setRemovedIds(new Set());
     setRealtimeMessages([]); // Clear real-time messages when switching chats
+    setOlderPages([]);
+    loadingOlderRef.current = false;
+    restoreScrollRef.current = null;
+    initialScrollDoneRef.current = false;
+    nearBottomRef.current = true;
     if (textareaRef.current) {
       textareaRef.current.value = "";
       handleTextareaChange();
     }
   }, [remoteJid]);
 
+  const copyMessage = async (message: Message) => {
+    const text = copyableMessageText(message);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const input = document.createElement("textarea");
+      input.value = text;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      const copied = document.execCommand("copy");
+      input.remove();
+      if (!copied) { toast.error("Não foi possível copiar a mensagem"); return; }
+    }
+    toast.success("Mensagem copiada");
+  };
+
+  const deleteForEveryone = async (message: Message) => {
+    if (!instance?.name || !instance?.token || !remoteJid || deletingId || !message.key.fromMe || instance.integration !== "WHATSAPP-BAILEYS") return;
+    if (!window.confirm("Excluir esta mensagem para todos?")) return;
+    try {
+      setDeletingId(message.key.id);
+      await api.delete(`/chat/deleteMessageForEveryone/${instance.name}`, {
+        data: { id: message.key.id, fromMe: true, remoteJid, ...(message.key.participant && { participant: message.key.participant }) },
+        headers: { apikey: instance.token },
+      });
+      setRemovedIds((current) => new Set(current).add(message.key.id));
+      await queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] });
+      toast.success("Mensagem excluída para todos");
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      toast.error("Não foi possível excluir a mensagem para todos");
+    } finally {
+      setDeletingId("");
+    }
+  };
+
+  const sendForward = async () => {
+    if (!forwardSource || !instance?.name || !instance?.token || forwarding) return;
+    const number = (forwardSelectedJid || forwardSearch).replace(/\D/g, "");
+    if (!/^\d{8,15}$/.test(number)) return;
+    try {
+      setForwarding(true);
+      await api.post(`/chat/forwardMessage/${instance.name}`, {
+        id: forwardSource.key.id,
+        remoteJid: forwardSource.key.remoteJid,
+        number,
+      }, { headers: { apikey: instance.token } });
+      setForwardSource(null);
+      await queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] });
+      toast.success("Mensagem encaminhada");
+    } catch (error) {
+      console.error("Error forwarding message:", error);
+      toast.error("Não foi possível encaminhar a mensagem");
+    } finally {
+      setForwarding(false);
+    }
+  };
+
+  const messageActions = (message: Message) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Ações da mensagem">
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={message.key.fromMe ? "end" : "start"}>
+        <DropdownMenuItem onClick={() => { setReplyTo(message); textareaRef.current?.focus(); }}>
+          <Reply className="mr-2 h-4 w-4" /> Responder
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={instance?.integration !== "WHATSAPP-BAILEYS"} onClick={() => {
+          setForwardSearch("");
+          setForwardSelectedJid("");
+          setForwardSource(message);
+        }}>
+          <Forward className="mr-2 h-4 w-4" /> Encaminhar
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!copyableMessageText(message)} onClick={() => copyMessage(message)}>
+          <Copy className="mr-2 h-4 w-4" /> Copiar
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!message.key.fromMe || instance?.integration !== "WHATSAPP-BAILEYS" || !!deletingId}
+          className="text-destructive"
+          onClick={() => deleteForEveryone(message)}>
+          <Trash2 className="mr-2 h-4 w-4" /> Excluir para todos
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   const renderBubbleRight = (message: Message) => (
-    <div key={message.id} className="mb-4 flex justify-end">
-      <div className="max-w-[70%]">
-        <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
-          <MessageContent message={message} instanceName={instance?.name} token={instance?.token} />
+    <div key={message.key.id} className="mb-4 flex justify-end">
+      <div className="flex max-w-[85%] items-start gap-1">
+        {messageActions(message)}
+        <div className="min-w-0">
+          <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
+            <QuotedContent message={message} />
+            <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
+          </div>
+          <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
         </div>
-        <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
       </div>
     </div>
   );
@@ -581,17 +826,21 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
     const senderName = message.pushName || (participant ? participant.split("@")[0] : "");
 
     return (
-      <div key={message.id} className="mb-4 flex justify-start">
-        <div className="max-w-[70%]">
+      <div key={message.key.id} className="mb-4 flex justify-start">
+        <div className="flex max-w-[85%] items-start gap-1">
+          <div className="min-w-0">
           {isGroup && senderName && (
             <div className="mb-1 text-xs font-semibold" style={{ color: getSenderColor(senderKey) }}>
               {senderName}
             </div>
           )}
           <div className="rounded-lg border bg-muted px-3 py-2 text-sm text-foreground">
-            <MessageContent message={message} instanceName={instance?.name} token={instance?.token} />
+            <QuotedContent message={message} />
+            <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
           </div>
           <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
+          </div>
+          {messageActions(message)}
         </div>
       </div>
     );
@@ -599,6 +848,13 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
 
   const headerName = headerNameOverride || chat?.pushName || chat?.remoteJid?.split("@")[0] || remoteJid?.split("@")[0];
   const headerSub = chat?.remoteJid?.split("@")[0];
+  const forwardQuery = forwardSearch.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const forwardDigits = forwardSearch.replace(/\D/g, "");
+  const forwardContacts = contacts.filter((contact) => contact.remoteJid.endsWith("@s.whatsapp.net") &&
+    (!forwardQuery ||
+      (contact.pushName || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(forwardQuery) ||
+      (forwardDigits.length > 0 && contact.remoteJid.includes(forwardDigits))));
+  const selectedForwardNumber = (forwardSelectedJid || forwardSearch).replace(/\D/g, "");
 
   return (
     <ChatImageGallery key={remoteJid} messages={groupedMessages.flatMap((group) => group.messages)}>
@@ -618,7 +874,9 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
             {headerActions}
           </div>
         </div>
-        <div className="flex w-full flex-1 flex-col overflow-y-auto px-4 py-4">
+        <div ref={scrollContainerRef} onScroll={handleHistoryScroll} className="flex w-full flex-1 flex-col overflow-y-auto px-4 py-4">
+          {loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Carregando mensagens anteriores...</p>}
+          {hasOlder && !loadingOlder && <button type="button" className="py-2 text-center text-xs text-primary hover:underline" onClick={loadOlder}>Carregar mensagens anteriores</button>}
           {groupedMessages.map((group, groupIndex) => (
             <div key={groupIndex}>
               <DateSeparator date={group.date} />
@@ -629,6 +887,14 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
         </div>
         <div className="flex-shrink-0 border-t bg-background p-3">
           <div className="rounded-lg border border-border bg-card shadow-sm">
+            {replyTo && <div className="flex items-start gap-2 border-b border-border bg-muted/30 px-3 py-2">
+              <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold">Respondendo a {replyTo.key.fromMe ? "você" : replyTo.pushName || headerName}</p>
+                <p className="truncate text-xs text-muted-foreground">{messagePreview(replyTo)}</p>
+              </div>
+              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="Cancelar resposta" onClick={() => setReplyTo(null)}><X className="h-4 w-4" /></Button>
+            </div>}
             {selectedMedia && (
               <div className="border-b border-border bg-muted/30 px-3 py-2">
                 <SelectedMedia selectedMedia={selectedMedia} setSelectedMedia={setSelectedMedia} />
@@ -666,6 +932,33 @@ function Messages({ headerNameOverride, headerActions, textareaRef, handleTextar
           </div>
         </div>
       </div>
+      <Dialog open={!!forwardSource} onOpenChange={(open) => { if (!open && !forwarding) setForwardSource(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle>Encaminhar mensagem</DialogTitle>
+          <DialogDescription className="truncate">{forwardSource && messagePreview(forwardSource)}</DialogDescription>
+          <Input
+            type="search"
+            aria-label="Pesquisar destino"
+            placeholder="Nome ou número com DDI e DDD"
+            value={forwardSearch}
+            onChange={(event) => { setForwardSearch(event.target.value); setForwardSelectedJid(""); }}
+          />
+          <div className="max-h-[40dvh] space-y-1 overflow-y-auto">
+            {forwardContacts.map((contact) => (
+              <button key={contact.remoteJid} type="button"
+                className={`flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-accent ${forwardSelectedJid === contact.remoteJid ? "bg-accent" : ""}`}
+                onClick={() => setForwardSelectedJid(contact.remoteJid)}>
+                <Avatar className="h-9 w-9 shrink-0"><AvatarImage src={contact.profilePicUrl} alt={contact.pushName || contact.remoteJid} /><AvatarFallback><User className="h-4 w-4" /></AvatarFallback></Avatar>
+                <span className="min-w-0"><span className="block truncate text-sm font-medium">{contact.pushName || contact.remoteJid.split("@")[0]}</span><span className="block text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</span></span>
+              </button>
+            ))}
+            {forwardContacts.length === 0 && <p className="py-3 text-center text-sm text-muted-foreground">Nenhum contato encontrado. Você pode digitar um número.</p>}
+          </div>
+          <Button type="button" disabled={!/^\d{8,15}$/.test(selectedForwardNumber) || forwarding} onClick={sendForward}>
+            {forwarding ? "Encaminhando..." : "Encaminhar"}
+          </Button>
+        </DialogContent>
+      </Dialog>
     </ChatImageGallery>
   );
 }

@@ -69,6 +69,7 @@ export type Key = {
   fromMe: boolean;
   remoteJid: string;
   participant?: string;
+  deleted?: boolean;
 };
 
 export type Message = {
@@ -81,11 +82,18 @@ export type Message = {
   messageTimestamp: string;
   instanceId: string;
   source: string;
+  status?: string;
+};
+
+export type QuotedMessage = {
+  key: Key;
+  message: Record<string, unknown>;
 };
 
 export type SendText = {
   number: string;
   text: string;
+  quoted?: QuotedMessage;
   options?: {
     delay?: number;
     presence?: string;
@@ -95,6 +103,7 @@ export type SendText = {
 
 export type SendMedia = {
   number: string;
+  quoted?: QuotedMessage;
   mediaMessage: {
     mediatype: "image" | "video" | "audio" | "document";
     mimetype: string;
@@ -111,6 +120,7 @@ export type SendMedia = {
 export type SendAudio = {
   number: string;
   audio: string; // Base64 string
+  quoted?: QuotedMessage;
 };
 
 export type IntegrationSession = {

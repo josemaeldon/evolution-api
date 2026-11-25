@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { SendButtonsDto } from '../src/api/dto/sendMessage.dto';
-import { copyCodeFallback } from '../src/utils/copyCodeFallback';
+import { buttonFallbackText } from '../src/utils/buttonFallbackText';
 
 test('copy-code message includes a visible, selectable code', () => {
   const message = {
@@ -11,7 +11,7 @@ test('copy-code message includes a visible, selectable code', () => {
     buttons: [{ type: 'copy', displayText: 'Copiar código', copyCode: 'ABC123' }],
   } as SendButtonsDto;
 
-  assert.equal(copyCodeFallback(message), 'Seu código\n\nCopiar código:\nABC123');
+  assert.equal(buttonFallbackText(message), 'Seu código\n\nCopiar código:\nABC123');
 });
 
 test('Pix copy-and-paste message also includes the payment page URL', () => {
@@ -26,7 +26,7 @@ test('Pix copy-and-paste message also includes the payment page URL', () => {
   } as SendButtonsDto;
 
   assert.equal(
-    copyCodeFallback(message),
+    buttonFallbackText(message),
     'Pagamento Pix\n\nValor: R$ 10,00\n\nCopiar código Pix:\n000201PIXCODE\n\nVer pagamento:\nhttps://example.com/pagamento',
   );
 });
@@ -38,5 +38,19 @@ test('ordinary buttons do not create an extra text message', () => {
     buttons: [{ type: 'reply', displayText: 'Sim', id: 'yes' }],
   } as SendButtonsDto;
 
-  assert.equal(copyCodeFallback(message), null);
+  assert.equal(buttonFallbackText(message), null);
+});
+
+test('a payment link remains visible without exposing the Pix code in chat', () => {
+  const message = {
+    number: '5599999999999',
+    title: 'Pagamento Pix',
+    description: 'Valor: R$ 22,00',
+    buttons: [{ type: 'url', displayText: 'Abrir pagamento', url: 'https://example.com/manager/payment/inst/abc' }],
+  } as SendButtonsDto;
+
+  assert.equal(
+    buttonFallbackText(message),
+    'Pagamento Pix\n\nValor: R$ 22,00\n\nAbrir pagamento:\nhttps://example.com/manager/payment/inst/abc',
+  );
 });

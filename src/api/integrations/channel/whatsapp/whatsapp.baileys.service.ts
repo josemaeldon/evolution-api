@@ -4,6 +4,7 @@ import {
   ArchiveChatDto,
   BlockUserDto,
   DeleteMessage,
+  ForwardMessageDto,
   getBase64FromMediaMessageDto,
   LastMessage,
   MarkChatUnreadDto,
@@ -80,7 +81,7 @@ import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { Boom } from '@hapi/boom';
 import { createId as cuid } from '@paralleldrive/cuid2';
 import { Instance, Message } from '@prisma/client';
-import { copyCodeFallback } from '@utils/copyCodeFallback';
+import { buttonFallbackText } from '@utils/buttonFallbackText';
 import { createJid } from '@utils/createJid';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
 import { makeProxyAgent, makeProxyAgentUndici } from '@utils/makeProxyAgent';
@@ -3469,7 +3470,7 @@ export class BaileysStartupService extends ChannelStartupService {
       },
     };
 
-    const fallbackText = copyCodeFallback(data);
+    const fallbackText = buttonFallbackText(data);
     let interactiveResult: Awaited<ReturnType<typeof this.sendMessageWithTyping>>;
     try {
       interactiveResult = await this.sendMessageWithTyping(data.number, message, {
@@ -3856,6 +3857,25 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  public async forwardMessage(data: ForwardMessageDto) {
+    const source = await this.prismaRepository.message.findFirst({
+      where: {
+        instanceId: this.instanceId,
+        AND: [{ key: { path: ['id'], equals: data.id } }, { key: { path: ['remoteJid'], equals: data.remoteJid } }],
+      },
+    });
+    if (!source || source.status === 'DELETED' || source.messageType === 'protocolMessage' || !source.message) {
+      throw new BadRequestException('Mensagem indisponível para encaminhamento');
+    }
+
+    return await this.client.sendMessage(createJid(data.number), {
+      forward: {
+        key: source.key as proto.IMessageKey,
+        message: this.deserializeMessageBuffers(source.message) as proto.IMessage,
+      },
+    });
+  }
+
   public async deleteMessage(del: DeleteMessage) {
     try {
       const response = await this.client.sendMessage(del.remoteJid, { delete: del });
@@ -3864,7 +3884,7 @@ export class BaileysStartupService extends ChannelStartupService {
         if (messageId) {
           const isLogicalDeleted = configService.get<Database>('DATABASE').DELETE_DATA.LOGICAL_MESSAGE_DELETE;
           let message = await this.prismaRepository.message.findFirst({
-            where: { key: { path: ['id'], equals: messageId } },
+            where: { instanceId: this.instanceId, key: { path: ['id'], equals: messageId } },
           });
           if (isLogicalDeleted) {
             if (!message) return response;

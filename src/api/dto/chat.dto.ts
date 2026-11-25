@@ -101,6 +101,12 @@ export class DeleteMessage {
   remoteJid: string;
   participant?: string;
 }
+
+export class ForwardMessageDto {
+  id: string;
+  remoteJid: string;
+  number: string;
+}
 export class Options {
   delay?: number;
   presence?: WAPresence;

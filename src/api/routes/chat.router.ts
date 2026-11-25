@@ -4,6 +4,7 @@ import {
   BlockUserDto,
   ChatRemoteJidDto,
   DeleteMessage,
+  ForwardMessageDto,
   getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
   NumberDto,
@@ -27,6 +28,7 @@ import {
   chatRemoteJidSchema,
   contactValidateSchema,
   deleteMessageSchema,
+  forwardMessageSchema,
   markChatUnreadSchema,
   messageUpSchema,
   messageValidateSchema,
@@ -100,6 +102,16 @@ export class ChatRouter extends RouterBroker {
           schema: deleteMessageSchema,
           ClassRef: DeleteMessage,
           execute: (instance, data) => chatController.deleteMessage(instance, data),
+        });
+
+        return res.status(HttpStatus.CREATED).json(response);
+      })
+      .post(this.routerPath('forwardMessage'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<ForwardMessageDto>({
+          request: req,
+          schema: forwardMessageSchema,
+          ClassRef: ForwardMessageDto,
+          execute: (instance, data) => chatController.forwardMessage(instance, data),
         });
 
         return res.status(HttpStatus.CREATED).json(response);

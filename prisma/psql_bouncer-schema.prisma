@@ -112,6 +112,17 @@ model Instance {
   N8nSetting              N8nSetting[]
   Evoai                   Evoai[]
   EvoaiSetting            EvoaiSetting?
+  PixPaymentLink          PixPaymentLink[]
+}
+
+model PixPaymentLink {
+  id         String   @id @db.VarChar(32)
+  instanceId String
+  charge     Json     @db.JsonB
+  createdAt  DateTime @default(now())
+  Instance   Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
 }
 
 model Session {

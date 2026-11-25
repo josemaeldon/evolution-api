@@ -3,6 +3,7 @@ import {
   BlockUserDto,
   ChatRemoteJidDto,
   DeleteMessage,
+  ForwardMessageDto,
   getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
   NumberDto,
@@ -19,6 +20,7 @@ import {
 import { InstanceDto } from '@api/dto/instance.dto';
 import { Query } from '@api/repository/repository.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { BadRequestException } from '@exceptions';
 import { Contact, Message, MessageUpdate } from '@prisma/client';
 
 export class ChatController {
@@ -42,6 +44,14 @@ export class ChatController {
 
   public async deleteMessage({ instanceName }: InstanceDto, data: DeleteMessage) {
     return await this.waMonitor.waInstances[instanceName].deleteMessage(data);
+  }
+
+  public async forwardMessage({ instanceName }: InstanceDto, data: ForwardMessageDto) {
+    const channel = this.waMonitor.waInstances[instanceName];
+    if (typeof channel?.forwardMessage !== 'function') {
+      throw new BadRequestException('Encaminhamento indisponível para este canal');
+    }
+    return await channel.forwardMessage(data);
   }
 
   public async fetchProfilePicture({ instanceName }: InstanceDto, data: NumberDto) {

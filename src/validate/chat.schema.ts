@@ -131,6 +131,17 @@ export const deleteMessageSchema: JSONSchema7 = {
   ...isNotEmpty('id', 'remoteJid', 'participant'),
 };
 
+export const forwardMessageSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    id: { type: 'string', minLength: 1 },
+    remoteJid: { type: 'string', minLength: 1 },
+    number: { type: 'string', pattern: '^\\d{8,15}$' },
+  },
+  required: ['id', 'remoteJid', 'number'],
+};
+
 export const profilePictureSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
@@ -255,6 +266,8 @@ export const messageValidateSchema: JSONSchema7 = {
       ...isNotEmpty('_id'),
     },
     limit: { type: 'integer' },
+    offset: { type: 'integer', minimum: 1, maximum: 100 },
+    page: { type: 'integer', minimum: 1 },
   },
 };
 

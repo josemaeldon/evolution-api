@@ -39,6 +39,10 @@ const router = createBrowserRouter([
     element: <PaymentPix />,
   },
   {
+    path: "/manager/payment/:instanceId/:id",
+    element: <PaymentPix />,
+  },
+  {
     path: "/manager/login",
     element: (
       <PublicRoute>
