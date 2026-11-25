@@ -16,11 +16,11 @@ export const verifyServer = async ({ url }: IParams) => {
   return response.data;
 };
 
-export const useVerifyServer = (props: UseQueryParams<any> & Partial<IParams>) => {
+export const useVerifyServer = (props: UseQueryParams<any> & { url?: string | null }) => {
   const { url, enabled, ...rest } = props;
   return useQuery<any>({
     ...rest,
-    queryKey: queryKey({ url }),
+    queryKey: queryKey({ url: url ?? undefined }),
     queryFn: () => verifyServer({ url: url! }),
     enabled: !!url && (enabled ?? true),
   });
