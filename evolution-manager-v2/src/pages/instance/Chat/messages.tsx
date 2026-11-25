@@ -192,7 +192,7 @@ const quotedContentPreview = (message: Message): string | null => {
   const content = messageContent(message);
   const body = content.extendedTextMessage || content.imageMessage || content.videoMessage ||
     content.audioMessage || content.documentMessage || content.documentWithCaptionMessage?.message?.documentMessage;
-  const quoted = body?.contextInfo?.quotedMessage;
+  const quoted = message.contextInfo?.quotedMessage || content.contextInfo?.quotedMessage || body?.contextInfo?.quotedMessage;
   if (!quoted) return null;
   const text = quoted.conversation || quoted.extendedTextMessage?.text || quoted.imageMessage?.caption ||
     quoted.videoMessage?.caption || quoted.documentMessage?.caption || quoted.documentMessage?.fileName;

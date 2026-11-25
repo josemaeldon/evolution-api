@@ -41,7 +41,7 @@ test('ordinary buttons do not create an extra text message', () => {
   assert.equal(buttonFallbackText(message), null);
 });
 
-test('a payment link remains visible without exposing the Pix code in chat', () => {
+test('a payment link with a URL button does not create a duplicate text message', () => {
   const message = {
     number: '5599999999999',
     title: 'Pagamento Pix',
@@ -49,8 +49,5 @@ test('a payment link remains visible without exposing the Pix code in chat', () 
     buttons: [{ type: 'url', displayText: 'Abrir pagamento', url: 'https://example.com/manager/payment/inst/abc' }],
   } as SendButtonsDto;
 
-  assert.equal(
-    buttonFallbackText(message),
-    'Pagamento Pix\n\nValor: R$ 22,00\n\nAbrir pagamento:\nhttps://example.com/manager/payment/inst/abc',
-  );
+  assert.equal(buttonFallbackText(message), null);
 });

@@ -42,6 +42,10 @@ function Chat() {
   const { instance } = useInstance();
 
   const [realtimeChats, setRealtimeChats] = useState<ChatType[]>([]);
+  const [unreadOverrides, setUnreadOverrides] = useState<Record<string, number>>({});
+  const seenMessageIdsRef = useRef(new Set<string>());
+  const activeChatRef = useRef<string | undefined>(undefined);
+  const serverUnreadRef = useRef<Record<string, number>>({});
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ChatKind>("contacts");
   const [contactsOpen, setContactsOpen] = useState(false);
@@ -53,6 +57,7 @@ function Chat() {
   const [savingContact, setSavingContact] = useState(false);
 
   const { data: chats } = useFindChats({ instanceName: instance?.name, refetchInterval: 5000 });
+  serverUnreadRef.current = Object.fromEntries((chats || []).map((chat) => [chat.remoteJid, chat.unreadCount || 0]));
   const {
     data: contacts = [],
     isPending: contactsPending,
@@ -84,6 +89,16 @@ function Chat() {
 
   const { instanceId, remoteJid } = useParams<{ instanceId: string; remoteJid: string }>();
   const navigate = useNavigate();
+  activeChatRef.current = remoteJid;
+
+  useEffect(() => {
+    seenMessageIdsRef.current.clear();
+    setUnreadOverrides({});
+  }, [instance?.id]);
+
+  useEffect(() => {
+    if (remoteJid) setUnreadOverrides((current) => ({ ...current, [remoteJid]: 0 }));
+  }, [remoteJid]);
 
   useEffect(() => {
     if (!instance?.name) return;
@@ -92,10 +107,23 @@ function Chat() {
 
     const socket = connectSocket(serverUrl, instance.token);
 
-    const handle = (data: { instance?: string; data?: { key?: { remoteJid?: string; profilePictureUrl?: string }; pushName?: string } }) => {
+    const handle = (data: { instance?: string; data?: { key?: { id?: string; fromMe?: boolean; remoteJid?: string; profilePictureUrl?: string }; pushName?: string } }) => {
       if (!instance || data.instance !== instance.name) return;
       const jid = data?.data?.key?.remoteJid;
       if (!jid) return;
+
+      const key = data.data?.key;
+      const messageId = key?.id ? `${jid}:${key.id}` : "";
+      if (key?.fromMe === false && messageId && !seenMessageIdsRef.current.has(messageId)) {
+        seenMessageIdsRef.current.add(messageId);
+        if (seenMessageIdsRef.current.size > 5000) seenMessageIdsRef.current.delete(seenMessageIdsRef.current.values().next().value!);
+        if (activeChatRef.current !== jid) {
+          setUnreadOverrides((current) => ({
+            ...current,
+            [jid]: current[jid] === undefined ? Math.max(serverUnreadRef.current[jid] || 0, 1) : current[jid] + 1,
+          }));
+        }
+      }
 
       setRealtimeChats((prev) => {
         const idx = prev.findIndex((c) => c.remoteJid === jid);
@@ -144,7 +172,11 @@ function Chat() {
     textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
   };
 
-  const handleChat = (jid: string) => navigate(`/manager/instance/${instanceId}/chat/${jid}`);
+  const handleChat = (jid: string) => {
+    activeChatRef.current = jid;
+    setUnreadOverrides((current) => ({ ...current, [jid]: 0 }));
+    navigate(`/manager/instance/${instanceId}/chat/${jid}`);
+  };
 
   const handleBack = () => navigate(`/manager/instance/${instanceId}/chat`);
 
@@ -301,6 +333,7 @@ function Chat() {
             visibleChats.map((chat) => {
               const selected = remoteJid === chat.remoteJid;
               const name = chat.pushName || formatJid(chat.remoteJid);
+              const unreadCount = selected ? 0 : (unreadOverrides[chat.remoteJid] ?? chat.unreadCount ?? 0);
 
               return (
                 <button
@@ -315,7 +348,8 @@ function Chat() {
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="mb-0.5 flex items-center justify-between gap-2">
-                        <p className="truncate font-medium">{name}</p>
+                        <p className={cn("truncate font-medium", unreadCount > 0 && "font-semibold")}>{name}</p>
+                        {unreadCount > 0 && <span aria-label={`${unreadCount} mensagens não lidas`} className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>}
                       </div>
                       <p className="truncate text-sm text-muted-foreground">{formatJid(chat.remoteJid)}</p>
                     </div>

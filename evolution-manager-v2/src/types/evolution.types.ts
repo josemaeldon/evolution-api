@@ -62,6 +62,7 @@ export type Chat = {
   createdAt: string;
   updatedAt: string;
   instanceId: string;
+  unreadCount?: number;
 };
 
 export type Key = {
@@ -83,6 +84,11 @@ export type Message = {
   instanceId: string;
   source: string;
   status?: string;
+  contextInfo?: {
+    stanzaId?: string;
+    participant?: string;
+    quotedMessage?: Record<string, unknown>;
+  };
 };
 
 export type QuotedMessage = {
