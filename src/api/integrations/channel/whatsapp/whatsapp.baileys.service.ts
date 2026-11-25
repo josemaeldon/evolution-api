@@ -60,6 +60,7 @@ import { PrismaRepository, Query } from '@api/repository/repository.service';
 import { chatbotController, waMonitor } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import { hasCompanyStorageCapacity } from '@api/services/manager-storage.service';
 import { Events, MessageSubtype, TypeMediaMessage, wa } from '@api/types/wa.types';
 import { CacheEngine } from '@cache/cacheengine';
 import {
@@ -1430,31 +1431,40 @@ export class BaileysStartupService extends ChannelStartupService {
                       return;
                     }
 
-                    const { buffer, mediaType, fileName, size } = media;
-                    const mimetype = mimeTypes.lookup(fileName).toString();
-                    const fullName = join(
-                      `${this.instance.id}`,
-                      received.key.remoteJid,
-                      mediaType,
-                      `${Date.now()}_${fileName}`,
-                    );
-                    await s3Service.uploadFile(fullName, buffer, size.fileLength?.low, { 'Content-Type': mimetype });
+                    const { buffer, mediaType, fileName } = media;
+                    const sizeBytes = Buffer.byteLength(buffer);
+                    if (!(await hasCompanyStorageCapacity(this.prismaRepository, this.instanceId, sizeBytes))) {
+                      this.logger.warn(`Company storage quota reached; skipping media ${msg.id}`);
+                    } else {
+                      const mimetype = mimeTypes.lookup(fileName).toString();
+                      const fullName = join(
+                        `${this.instance.id}`,
+                        received.key.remoteJid,
+                        mediaType,
+                        `${Date.now()}_${fileName}`,
+                      );
+                      const uploadResult = await s3Service.uploadFile(fullName, buffer, sizeBytes, {
+                        'Content-Type': mimetype,
+                      });
+                      if (uploadResult instanceof Error) throw uploadResult;
 
-                    await this.prismaRepository.media.create({
-                      data: {
-                        messageId: msg.id,
-                        instanceId: this.instanceId,
-                        type: mediaType,
-                        fileName: fullName,
-                        mimetype,
-                      },
-                    });
+                      await this.prismaRepository.media.create({
+                        data: {
+                          messageId: msg.id,
+                          instanceId: this.instanceId,
+                          type: mediaType,
+                          fileName: fullName,
+                          mimetype,
+                          sizeBytes,
+                        },
+                      });
 
-                    const mediaUrl = await s3Service.getObjectUrl(fullName);
+                      const mediaUrl = await s3Service.getObjectUrl(fullName);
 
-                    messageRaw.message.mediaUrl = mediaUrl;
+                      messageRaw.message.mediaUrl = mediaUrl;
 
-                    await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+                      await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+                    }
                   }
                 } catch (error) {
                   this.logger.error(['Error on upload file to minio', error?.message, error?.stack]);
@@ -2544,29 +2554,43 @@ export class BaileysStartupService extends ChannelStartupService {
                 return;
               }
 
-              const { buffer, mediaType, fileName, size } = media;
+              const { buffer, mediaType, fileName } = media;
+              const sizeBytes = Buffer.byteLength(buffer);
+              if (!(await hasCompanyStorageCapacity(this.prismaRepository, this.instanceId, sizeBytes))) {
+                this.logger.warn(`Company storage quota reached; skipping media ${msg.id}`);
+              } else {
+                const mimetype = mimeTypes.lookup(fileName).toString();
 
-              const mimetype = mimeTypes.lookup(fileName).toString();
+                const fullName = join(
+                  `${this.instance.id}`,
+                  messageRaw.key.remoteJid,
+                  `${messageRaw.key.id}`,
+                  mediaType,
+                  fileName,
+                );
 
-              const fullName = join(
-                `${this.instance.id}`,
-                messageRaw.key.remoteJid,
-                `${messageRaw.key.id}`,
-                mediaType,
-                fileName,
-              );
+                const uploadResult = await s3Service.uploadFile(fullName, buffer, sizeBytes, {
+                  'Content-Type': mimetype,
+                });
+                if (uploadResult instanceof Error) throw uploadResult;
 
-              await s3Service.uploadFile(fullName, buffer, size.fileLength?.low, { 'Content-Type': mimetype });
+                await this.prismaRepository.media.create({
+                  data: {
+                    messageId: msg.id,
+                    instanceId: this.instanceId,
+                    type: mediaType,
+                    fileName: fullName,
+                    mimetype,
+                    sizeBytes,
+                  },
+                });
 
-              await this.prismaRepository.media.create({
-                data: { messageId: msg.id, instanceId: this.instanceId, type: mediaType, fileName: fullName, mimetype },
-              });
+                const mediaUrl = await s3Service.getObjectUrl(fullName);
 
-              const mediaUrl = await s3Service.getObjectUrl(fullName);
+                messageRaw.message.mediaUrl = mediaUrl;
 
-              messageRaw.message.mediaUrl = mediaUrl;
-
-              await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+                await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+              }
             }
           } catch (error) {
             this.logger.error(['Error on upload file to minio', error?.message, error?.stack]);

@@ -105,6 +105,16 @@ const getObjectUrl = async (fileName: string, expiry?: number) => {
   }
 };
 
+const getObjectSize = async (fileName: string) => {
+  if (!minioClient) return undefined;
+  try {
+    const stat = await minioClient.statObject(bucketName, join('evolution-api', fileName));
+    return stat.size;
+  } catch {
+    return undefined;
+  }
+};
+
 const uploadTempFile = async (
   folder: string,
   fileName: string,
@@ -136,4 +146,4 @@ const deleteFile = async (folder: string, fileName: string) => {
   }
 };
 
-export { BUCKET, deleteFile, getObjectUrl, uploadFile, uploadTempFile };
+export { BUCKET, deleteFile, getObjectSize, getObjectUrl, uploadFile, uploadTempFile };

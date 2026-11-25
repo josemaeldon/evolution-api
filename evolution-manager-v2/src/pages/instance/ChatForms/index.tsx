@@ -1,6 +1,6 @@
 import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { ClipboardList, Download, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
 
@@ -24,6 +24,7 @@ const fieldTypes: { value: FormFieldType; label: string }[] = [
 ];
 
 const newField = (): FormField => ({ id: crypto.randomUUID(), label: "", type: "text", required: true });
+const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 
 export default function ChatForms() {
   const { instance } = useInstance();
@@ -51,6 +52,47 @@ export default function ChatForms() {
     enabled: !!instance?.name && !!selectedId,
   });
   const submissions = submissionPage?.items || [];
+
+  const exportSubmissions = async () => {
+    if (!instance || !selected) return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Permita janelas pop-up para exportar o PDF");
+      return;
+    }
+    printWindow.opener = null;
+    try {
+      const allSubmissions: FormSubmission[] = [];
+      let currentPage = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data } = await api.get<{ items: FormSubmission[]; hasMore: boolean }>(`/forms/${instance.name}/${selected.id}/submissions`, { params: { page: currentPage } });
+        allSubmissions.push(...data.items);
+        hasMore = data.hasMore;
+        currentPage += 1;
+      }
+      const headers = ["Contato", "WhatsApp", "Data", ...selected.fields.map((field) => field.label)];
+      const rows = allSubmissions.map((submission) => [
+        submission.contactName,
+        submission.remoteJid.split("@")[0],
+        new Date(submission.createdAt).toLocaleString("pt-BR"),
+        ...selected.fields.map((field) => {
+          const answer = submission.answers[field.id];
+          return answer === true ? "Sim" : answer === false ? "Não" : String(answer ?? "—");
+        }),
+      ]);
+      const table = `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+        .join("")}</tbody></table>`;
+      printWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(selected.title)} - Respostas</title><style>
+        @page{size:A4 landscape;margin:9mm}*{box-sizing:border-box}body{font:9px Arial,sans-serif;color:#202936;margin:0}h1{font-size:16px;margin:0 0 3px}p{font-size:9px;color:#596579;margin:0 0 10px}table{border-collapse:collapse;width:100%;table-layout:fixed}thead{display:table-header-group}tr{break-inside:avoid}th,td{border:1px solid #cbd3df;padding:4px 5px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#edf2f8;font-weight:700}tbody tr:nth-child(even){background:#f7f9fc}th:nth-child(1),td:nth-child(1){width:13%}th:nth-child(2),td:nth-child(2){width:12%}th:nth-child(3),td:nth-child(3){width:14%}@media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+        </style></head><body><h1>${escapeHtml(selected.title)}</h1><p>${allSubmissions.length} respostas · Exportado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</p>${table}<script>window.onload=()=>window.print()</script></body></html>`);
+      printWindow.document.close();
+    } catch (cause: any) {
+      printWindow.close();
+      toast.error(cause?.response?.data?.error || "Não foi possível exportar as respostas");
+    }
+  };
 
   const startCreate = () => {
     setEditingFormId(null);
@@ -191,6 +233,7 @@ export default function ChatForms() {
                   {selected.description && <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p>}
                 </div>
                 <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={exportSubmissions}><Download className="mr-1 h-4 w-4" /> Exportar PDF</Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => startEdit(selected)}><Pencil className="mr-1 h-4 w-4" /> Editar</Button>
                   <Button type="button" variant="ghost" size="sm" onClick={() => deleteForm(selected)}><Trash2 className="mr-1 h-4 w-4" /> Excluir</Button>
                 </div>

@@ -15,6 +15,13 @@ const errorMessage = (error: unknown) => {
   return "Não foi possível salvar. Tente novamente.";
 };
 
+const formatStorage = (bytes: number) => {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+const formatQuota = (megabytes: number) => `${Number((megabytes / 1024).toFixed(2))} GB`;
+
 export default function Companies() {
   const queryClient = useQueryClient();
   const { data: account } = useManagerAccount();
@@ -22,6 +29,7 @@ export default function Companies() {
   const [selectedId, setSelectedId] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [companyLimit, setCompanyLimit] = useState(1);
+  const [storageQuotaMb, setStorageQuotaMb] = useState(10240);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userPassword, setUserPassword] = useState("");
@@ -137,18 +145,20 @@ export default function Companies() {
 
       {superadmin && (
         <form
-          className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_150px_auto]"
+          className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_150px_180px_auto]"
           onSubmit={(event) => {
             event.preventDefault();
             run(async () => {
-              const response = await saasApi.post("/saas/companies", { name: companyName, maxInstances: companyLimit });
+              const response = await saasApi.post("/saas/companies", { name: companyName, maxInstances: companyLimit, storageQuotaMb });
               setSelectedId(response.data.id);
               setCompanyName("");
               setCompanyLimit(1);
+              setStorageQuotaMb(10240);
             }, "Empresa criada");
           }}>
           <Input aria-label="Nome da empresa" placeholder="Nome da empresa" required maxLength={255} value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
           <Input aria-label="Limite de instâncias" type="number" min={0} required value={companyLimit} onChange={(event) => setCompanyLimit(Number(event.target.value))} />
+          <Input aria-label="Cota de armazenamento em GB" type="number" min={0} step={0.1} required value={storageQuotaMb / 1024} onChange={(event) => setStorageQuotaMb(Math.round(Number(event.target.value) * 1024))} />
           <Button type="submit" disabled={busy}>
             Criar empresa
           </Button>
@@ -165,7 +175,7 @@ export default function Companies() {
               className={`w-full rounded-lg border p-3 text-left ${selectedId === company.id ? "border-primary bg-primary/10" : "hover:bg-muted"}`}>
               <span className="block font-medium">{company.name}</span>
               <span className="text-xs text-muted-foreground">
-                {company.instanceCount}/{company.maxInstances} instâncias · {company._count.users} usuários{company.active ? "" : " · Inativa"}
+                {company.instanceCount}/{company.maxInstances} instâncias · {company._count.users} usuários · {formatStorage(company.storageUsedBytes)} / {formatQuota(company.storageQuotaMb)}{company.active ? "" : " · Inativa"}
               </span>
             </button>
           ))}
@@ -185,6 +195,10 @@ export default function Companies() {
                     Limite de instâncias
                     <Input type="number" min={selected.instanceCount} defaultValue={selected.maxInstances} key={selected.id} id="company-limit" className="w-36" />
                   </label>
+                  <label className="space-y-1 text-sm">
+                    Cota de armazenamento (GB)
+                    <Input type="number" min={0} step={0.1} defaultValue={selected.storageQuotaMb / 1024} key={`${selected.id}-storage`} id="company-storage-quota" className="w-44" />
+                  </label>
                   <Button
                     disabled={busy}
                     variant="outline"
@@ -194,6 +208,7 @@ export default function Companies() {
                           saasApi.patch(`/saas/companies/${selected.id}`, {
                             name: (document.getElementById("company-name") as HTMLInputElement).value,
                             maxInstances: Number((document.getElementById("company-limit") as HTMLInputElement).value),
+                            storageQuotaMb: Math.round(Number((document.getElementById("company-storage-quota") as HTMLInputElement).value) * 1024),
                           }),
                         "Empresa atualizada",
                       )
@@ -208,6 +223,18 @@ export default function Companies() {
                   </Button>
                 </div>
               )}
+              <div className="space-y-2 rounded-md border p-3 text-sm" aria-label="Uso de armazenamento">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span>Armazenamento utilizado</span>
+                  <span className="font-medium">{formatStorage(selected.storageUsedBytes)} de {formatQuota(selected.storageQuotaMb)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, selected.storageQuotaMb ? selected.storageUsedBytes / (selected.storageQuotaMb * 1024 * 1024) * 100 : selected.storageUsedBytes ? 100 : 0)}%` }}
+                  />
+                </div>
+              </div>
               {superadmin && (
                 <div className="flex flex-wrap gap-3">
                   <select

@@ -1,5 +1,5 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@evoapi/design-system/collapsible";
-import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap, Info } from "lucide-react";
+import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap, Info, Images } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
@@ -142,6 +142,7 @@ function InstanceSidebar() {
     () => [
       { id: "dashboard", title: t("sidebar.dashboard"), icon: LayoutDashboard, path: "dashboard" },
       { id: "chat", title: t("sidebar.chat"), icon: MessageCircle, path: "chat" },
+      { id: "files", title: "Arquivos e Mídias", icon: Images, path: "files" },
       { id: "forms", title: "Formulários", icon: ClipboardList, path: "forms" },
       {
         title: t("sidebar.configurations"),
@@ -182,7 +183,10 @@ function InstanceSidebar() {
   const visibleMenus = useMemo(
     () =>
       menus
-        .filter((menu) => account?.role !== "user" || ("id" in menu && (menu.id === "chat" || menu.id === "forms")))
+        .filter((menu) => {
+          if ("id" in menu && menu.id === "files") return account?.role === "admin";
+          return account?.role !== "user" || ("id" in menu && (menu.id === "chat" || menu.id === "forms"));
+        })
         .map((menu) => {
           if ("children" in menu) {
             return { ...menu, children: menu.children.filter((c) => shouldShow(c.id)) };

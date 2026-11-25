@@ -31,6 +31,7 @@ import Companies from "@/pages/Companies";
 import Documentation from "@/pages/Documentation";
 import ChatForms from "@/pages/instance/ChatForms";
 import PublicChatForm from "@/pages/PublicChatForm";
+import FilesAndMedia from "@/pages/instance/FilesAndMedia";
 
 const router = createBrowserRouter([
   {
@@ -107,6 +108,16 @@ const router = createBrowserRouter([
       <ProtectedRoute feature="chat">
         <InstanceLayout>
           <Chat />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/files",
+    element: (
+      <ProtectedRoute feature="chat">
+        <InstanceLayout>
+          <FilesAndMedia />
         </InstanceLayout>
       </ProtectedRoute>
     ),

@@ -19,6 +19,8 @@ export type ManagerCompany = {
   name: string;
   maxInstances: number;
   instanceCount: number;
+  storageQuotaMb: number;
+  storageUsedBytes: number;
   active: boolean;
   _count: { users: number; instances: number };
 };

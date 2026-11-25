@@ -20,6 +20,7 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { chatbotController } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import { hasCompanyStorageCapacity } from '@api/services/manager-storage.service';
 import { Events, wa } from '@api/types/wa.types';
 import { AudioConverter, Chatwoot, ConfigService, Database, Openai, S3, WaBusiness } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
@@ -511,33 +512,38 @@ export class BusinessStartupService extends ChannelStartupService {
                   }
                 }
 
-                const size = result.headers['content-length'] || buffer.data.byteLength;
-
-                const fullName = join(`${this.instance.id}`, key.remoteJid, mediaType, fileName);
-
-                await s3Service.uploadFile(fullName, buffer.data, size, {
-                  'Content-Type': mimetype,
-                });
-
+                const sizeBytes = buffer.data.byteLength;
                 const createdMessage = await this.prismaRepository.message.create({
                   data: messageRaw,
                 });
 
-                await this.prismaRepository.media.create({
-                  data: {
-                    messageId: createdMessage.id,
-                    instanceId: this.instanceId,
-                    type: mediaType,
-                    fileName: fullName,
-                    mimetype,
-                  },
-                });
+                if (!(await hasCompanyStorageCapacity(this.prismaRepository, this.instanceId, sizeBytes))) {
+                  this.logger.warn(`Company storage quota reached; skipping media ${createdMessage.id}`);
+                } else {
+                  const fullName = join(`${this.instance.id}`, key.remoteJid, mediaType, fileName);
 
-                const mediaUrl = await s3Service.getObjectUrl(fullName);
+                  const uploadResult = await s3Service.uploadFile(fullName, buffer.data, sizeBytes, {
+                    'Content-Type': mimetype,
+                  });
+                  if (uploadResult instanceof Error) throw uploadResult;
 
-                messageRaw.message.mediaUrl = mediaUrl;
-                if (this.localWebhook.enabled && this.localWebhook.webhookBase64) {
-                  messageRaw.message.base64 = buffer.data.toString('base64');
+                  await this.prismaRepository.media.create({
+                    data: {
+                      messageId: createdMessage.id,
+                      instanceId: this.instanceId,
+                      type: mediaType,
+                      fileName: fullName,
+                      mimetype,
+                      sizeBytes,
+                    },
+                  });
+
+                  const mediaUrl = await s3Service.getObjectUrl(fullName);
+
+                  messageRaw.message.mediaUrl = mediaUrl;
+                  if (this.localWebhook.enabled && this.localWebhook.webhookBase64) {
+                    messageRaw.message.base64 = buffer.data.toString('base64');
+                  }
                 }
 
                 // Processar OpenAI speech-to-text para áudio após o mediaUrl estar disponível

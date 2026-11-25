@@ -1,0 +1,2 @@
+ALTER TABLE "ManagerCompany"
+ALTER COLUMN "storageQuotaMb" SET DEFAULT 10240;

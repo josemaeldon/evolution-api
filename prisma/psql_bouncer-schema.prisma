@@ -122,6 +122,7 @@ model ManagerCompany {
   id            String        @id @default(cuid())
   name          String        @db.VarChar(255)
   maxInstances  Int           @default(1)
+  storageQuotaMb Int          @default(10240)
   instanceCount Int           @default(0)
   active        Boolean       @default(true)
   createdAt     DateTime      @default(now())
@@ -493,6 +494,7 @@ model Media {
   fileName   String    @db.VarChar(500)
   type       String    @db.VarChar(100)
   mimetype   String    @db.VarChar(100)
+  sizeBytes  Int       @default(0)
   createdAt  DateTime? @default(now()) @db.Date
   Message    Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
   messageId  String    @unique

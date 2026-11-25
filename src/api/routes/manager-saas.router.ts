@@ -1,3 +1,4 @@
+import { BUCKET, deleteFile, getObjectUrl } from '@api/integrations/storage/s3/libs/minio.server';
 import { prismaRepository } from '@api/server.module';
 import {
   clearSessionCookie,
@@ -12,6 +13,8 @@ import {
   setManagerPrincipal,
   setSessionCookie,
 } from '@api/services/manager-saas.service';
+import { getCompanyStorageUsage } from '@api/services/manager-storage.service';
+import { Prisma } from '@prisma/client';
 import { scrypt as scryptCallback } from 'crypto';
 import { Router } from 'express';
 import { promisify } from 'util';
@@ -120,17 +123,31 @@ router.get('/companies', async (req, res) => {
     include: { _count: { select: { users: true, instances: true } } },
     orderBy: { name: 'asc' },
   });
-  return res.json(companies);
+  const companiesWithUsage = await Promise.all(
+    companies.map(async (company) => ({
+      ...company,
+      storageUsedBytes: (await getCompanyStorageUsage(prismaRepository, company.id)).usedBytes,
+    })),
+  );
+  return res.json(companiesWithUsage);
 });
 
 router.post('/companies', async (req, res) => {
   if (getManagerPrincipal(req).role !== 'superadmin') return res.status(403).json(fail('Acesso negado'));
   const name = String(req.body?.name || '').trim();
   const maxInstances = Number(req.body?.maxInstances);
-  if (!name || name.length > 255 || !Number.isInteger(maxInstances) || maxInstances < 0) {
-    return res.status(400).json(fail('Informe nome e limite de instâncias válido'));
+  const storageQuotaMb = Number(req.body?.storageQuotaMb);
+  if (
+    !name ||
+    name.length > 255 ||
+    !Number.isInteger(maxInstances) ||
+    maxInstances < 0 ||
+    !Number.isSafeInteger(storageQuotaMb) ||
+    storageQuotaMb < 0
+  ) {
+    return res.status(400).json(fail('Informe nome e limites válidos de instâncias e armazenamento'));
   }
-  const company = await prismaRepository.managerCompany.create({ data: { name, maxInstances } });
+  const company = await prismaRepository.managerCompany.create({ data: { name, maxInstances, storageQuotaMb } });
   return res.status(201).json(company);
 });
 
@@ -140,21 +157,150 @@ router.patch('/companies/:companyId', async (req, res) => {
   if (!company) return res.status(404).json(fail('Empresa não encontrada'));
   const name = req.body?.name === undefined ? company.name : String(req.body.name).trim();
   const maxInstances = req.body?.maxInstances === undefined ? company.maxInstances : Number(req.body.maxInstances);
+  const storageQuotaMb =
+    req.body?.storageQuotaMb === undefined ? company.storageQuotaMb : Number(req.body.storageQuotaMb);
   const active = req.body?.active === undefined ? company.active : req.body.active;
   if (
     !name ||
     name.length > 255 ||
     !Number.isInteger(maxInstances) ||
     maxInstances < company.instanceCount ||
+    !Number.isSafeInteger(storageQuotaMb) ||
+    storageQuotaMb < 0 ||
     typeof active !== 'boolean'
   ) {
-    return res.status(400).json(fail('Dados inválidos ou limite menor que as instâncias atribuídas'));
+    return res.status(400).json(fail('Dados inválidos ou limite menor que os recursos em uso'));
   }
   const updated = await prismaRepository.managerCompany.update({
     where: { id: company.id },
-    data: { name, maxInstances, active },
+    data: { name, maxInstances, storageQuotaMb, active },
   });
   return res.json(updated);
+});
+
+router.get('/storage', async (req, res) => {
+  const principal = getManagerPrincipal(req);
+  const companyId = principal.companyId;
+  if (principal.role !== 'admin' || !companyId)
+    return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
+
+  const [company, usage] = await Promise.all([
+    prismaRepository.managerCompany.findUnique({
+      where: { id: companyId },
+      select: { storageQuotaMb: true },
+    }),
+    getCompanyStorageUsage(prismaRepository, companyId),
+  ]);
+  if (!company) return res.status(404).json(fail('Empresa não encontrada'));
+
+  return res.json({ ...usage, storageQuotaMb: company.storageQuotaMb, storageEnabled: BUCKET.ENABLE });
+});
+
+router.get('/media', async (req, res) => {
+  const principal = getManagerPrincipal(req);
+  const companyId = principal.companyId;
+  if (principal.role !== 'admin' || !companyId)
+    return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
+
+  const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number.parseInt(String(req.query.pageSize || '50'), 10) || 50));
+  const search = String(req.query.search || '').trim();
+  const type = String(req.query.type || '').trim();
+  const instanceId = String(req.query.instanceId || '').trim();
+  const where: Prisma.MediaWhereInput = {
+    Instance: { is: { companyId, ...(instanceId ? { id: instanceId } : {}) } },
+    ...(type ? { type } : {}),
+    ...(search
+      ? {
+          OR: [
+            { fileName: { contains: search, mode: 'insensitive' } },
+            { mimetype: { contains: search, mode: 'insensitive' } },
+            { Instance: { is: { name: { contains: search, mode: 'insensitive' } } } },
+          ],
+        }
+      : {}),
+  };
+  const [items, total, usage] = await Promise.all([
+    prismaRepository.media.findMany({
+      where,
+      select: {
+        id: true,
+        fileName: true,
+        type: true,
+        mimetype: true,
+        sizeBytes: true,
+        createdAt: true,
+        Instance: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prismaRepository.media.count({ where }),
+    getCompanyStorageUsage(prismaRepository, companyId),
+  ]);
+
+  return res.json({ items, total, page, pageSize, ...usage });
+});
+
+router.get('/media/:mediaId/url', async (req, res) => {
+  const principal = getManagerPrincipal(req);
+  const companyId = principal.companyId;
+  if (principal.role !== 'admin' || !companyId)
+    return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
+  if (!BUCKET.ENABLE) return res.status(503).json(fail('Armazenamento MinIO/S3 não está habilitado'));
+  const media = await prismaRepository.media.findFirst({
+    where: { id: req.params.mediaId, Instance: { is: { companyId } } },
+    select: { fileName: true },
+  });
+  if (!media) return res.status(404).json(fail('Arquivo não encontrado'));
+  return res.json({ url: await getObjectUrl(media.fileName) });
+});
+
+router.delete('/media', async (req, res) => {
+  const principal = getManagerPrincipal(req);
+  const companyId = principal.companyId;
+  if (principal.role !== 'admin' || !companyId)
+    return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
+  if (!BUCKET.ENABLE) return res.status(503).json(fail('Armazenamento MinIO/S3 não está habilitado'));
+
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 500 || ids.some((id) => typeof id !== 'string')) {
+    return res.status(400).json(fail('Selecione de 1 a 500 arquivos para excluir'));
+  }
+
+  const files = await prismaRepository.media.findMany({
+    where: { id: { in: ids }, Instance: { is: { companyId } } },
+    include: { Message: { select: { message: true } } },
+  });
+  let deleted = 0;
+  for (const file of files) {
+    const result = await deleteFile('evolution-api', file.fileName);
+    if (result) return res.status(502).json(fail('Não foi possível excluir um arquivo do armazenamento'));
+
+    const storedMessage = file.Message.message;
+    if (storedMessage && typeof storedMessage === 'object' && !Array.isArray(storedMessage)) {
+      const message = { ...(storedMessage as Record<string, unknown>) };
+      delete message.mediaUrl;
+      delete message.base64;
+      const content = message[file.type];
+      if (content && typeof content === 'object' && !Array.isArray(content)) {
+        const mediaContent = { ...(content as Record<string, unknown>) };
+        delete mediaContent.mediaUrl;
+        delete mediaContent.base64;
+        message[file.type] = mediaContent;
+      }
+      await prismaRepository.message.update({
+        where: { id: file.messageId },
+        data: { message: message as Prisma.InputJsonValue },
+      });
+    }
+
+    await prismaRepository.media.delete({ where: { id: file.id } });
+    deleted += 1;
+  }
+
+  return res.json({ deleted });
 });
 
 router.get('/companies/:companyId/users', async (req, res) => {
