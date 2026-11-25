@@ -18,6 +18,7 @@ import { InstanceCard } from "@/components/instance-card";
 
 import { useFetchInstances } from "@/lib/queries/instance/fetchInstances";
 import { useManageInstance } from "@/lib/queries/instance/manageInstance";
+import { useManagerAccount } from "@/lib/queries/saas";
 
 import { Instance } from "@/types/evolution.types";
 
@@ -25,6 +26,7 @@ import { NewInstance } from "./NewInstance";
 
 function Dashboard() {
   const { t } = useTranslation();
+  const { data: account } = useManagerAccount();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Instance | null>(null);
@@ -93,11 +95,11 @@ function Dashboard() {
     <div className="flex h-full flex-col">
       <BaseHeader
         title={t("dashboard.title")}
-        subtitle={t("dashboard.subtitle", { defaultValue: "Gerencie suas instâncias WhatsApp" })}
+        subtitle={account?.role === "user" ? "Escolha uma instância para abrir o chat" : t("dashboard.subtitle", { defaultValue: "Gerencie suas instâncias WhatsApp" })}
         searchValue={nameSearch}
         onSearchChange={setNameSearch}
         searchPlaceholder={t("dashboard.search")}
-        primaryAction={{
+        primaryAction={account?.role === "user" ? undefined : {
           label: t("instance.button.create"),
           icon: <Plus className="h-4 w-4" />,
           onClick: () => setCreateOpen(true),
@@ -148,13 +150,15 @@ function Dashboard() {
             <div>
               <h3 className="text-lg font-semibold">{t("dashboard.empty.title", { defaultValue: "Nenhuma instância encontrada" })}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                {t("dashboard.empty.description", { defaultValue: "Crie sua primeira instância para começar" })}
+                {account?.role === "user"
+                  ? "Peça ao administrador para atribuir uma instância à sua empresa."
+                  : t("dashboard.empty.description", { defaultValue: "Crie sua primeira instância para começar" })}
               </p>
             </div>
-            <Button onClick={() => setCreateOpen(true)} className="mt-2">
+            {account?.role !== "user" && <Button onClick={() => setCreateOpen(true)} className="mt-2">
               <Plus className="mr-2 h-4 w-4" />
               {t("instance.button.create")}
-            </Button>
+            </Button>}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -170,7 +174,7 @@ function Dashboard() {
         )}
       </div>
 
-      <NewInstance resetTable={resetTable} open={createOpen} onOpenChange={setCreateOpen} />
+      {account?.role !== "user" && <NewInstance resetTable={resetTable} open={createOpen} onOpenChange={setCreateOpen} />}
 
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && closeDeleteModal()}>
         <DialogContent className="sm:max-w-md">

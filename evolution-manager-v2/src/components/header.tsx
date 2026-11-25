@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useFetchInstance } from "@/lib/queries/instance/fetchInstance";
 import { logout } from "@/lib/queries/token";
 import { CLOUD_BR_CHAT_MARK } from "@/lib/branding";
+import { signOutManager } from "@/lib/queries/saas";
 
 import { LanguageToggle } from "./language-toggle";
 import { ModeToggle } from "./mode-toggle";
@@ -18,9 +19,17 @@ function Header({ instanceId }: { instanceId?: string }) {
   const [logoutConfirmation, setLogoutConfirmation] = useState(false);
   const navigate = useNavigate();
 
-  const handleClose = () => {
+  const handleClose = async () => {
+    if (localStorage.getItem("managerSaas") === "company") {
+      try {
+        await signOutManager();
+      } catch {
+        // The local session must be cleared even when the server is unavailable.
+      }
+    }
     logout();
-    navigate("/manager/login");
+    navigate("/manager/login", { replace: true });
+    window.location.reload();
   };
 
   const { data: instance } = useFetchInstance({ instanceId });

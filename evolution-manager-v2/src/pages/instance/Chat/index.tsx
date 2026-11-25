@@ -105,7 +105,7 @@ function Chat() {
     const serverUrl = getToken(TOKEN_ID.API_URL);
     if (!serverUrl) return;
 
-    const socket = connectSocket(serverUrl, instance.token);
+    const socket = connectSocket(serverUrl, instance.token, instance.name);
 
     const handle = (data: { instance?: string; data?: { key?: { id?: string; fromMe?: boolean; remoteJid?: string; profilePictureUrl?: string }; pushName?: string } }) => {
       if (!instance || data.instance !== instance.name) return;

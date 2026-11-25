@@ -19,6 +19,7 @@ import { verifyGoServer } from "@/lib/queries/auth/verifyGoServer";
 import { verifyServer } from "@/lib/queries/auth/verifyServer";
 import { checkLicenseStatus, initRegister } from "@/lib/queries/license/license";
 import { DEFAULT_PROVIDER, logout, saveToken } from "@/lib/queries/token";
+import { saasApi } from "@/lib/queries/saas";
 
 const loginSchema = z.object({
   provider: z.enum(["api", "go"]).default(DEFAULT_PROVIDER),
@@ -33,6 +34,9 @@ function Login() {
   const { theme } = useTheme();
   const [loginError, setLoginError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [mode, setMode] = useState<"company" | "superadmin">("company");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const logoSrc = theme === "dark" ? CLOUD_BR_CHAT_LOGO_DARK : CLOUD_BR_CHAT_LOGO;
 
   const loginForm = useForm<LoginSchema>({
@@ -47,6 +51,7 @@ function Login() {
   const handleLogin: SubmitHandler<LoginSchema> = async (data) => {
     setSubmitting(true);
     setLoginError("");
+    localStorage.removeItem("managerSaas");
     try {
       const cleanUrl = data.serverUrl.replace(/\/+$/, "");
 
@@ -123,6 +128,23 @@ function Login() {
 
   const errors = loginForm.formState.errors;
 
+  const handleCompanyLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setLoginError("");
+    try {
+      await saasApi.post("/saas/login", { email, password });
+      logout();
+      saveToken({ url: window.location.origin, provider: "api" });
+      localStorage.setItem("managerSaas", "company");
+      window.location.assign("/manager/");
+    } catch {
+      setLoginError("E-mail ou senha inválidos, ou empresa inativa.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-t from-primary/20 via-background/95 to-background p-4">
       <div className="w-full max-w-md space-y-6">
@@ -132,6 +154,10 @@ function Login() {
         </div>
 
         <div className="rounded-lg border bg-background/80 p-6 shadow-lg backdrop-blur-sm">
+          <div className="mb-5 grid grid-cols-2 gap-2">
+            <Button type="button" variant={mode === "company" ? "default" : "outline"} onClick={() => setMode("company")}>Empresa</Button>
+            <Button type="button" variant={mode === "superadmin" ? "default" : "outline"} onClick={() => setMode("superadmin")}>Superadministrador</Button>
+          </div>
           <div className="mb-6 space-y-2">
             <h2 className="text-2xl font-bold">{t("login.title")}</h2>
             <p className="text-sm text-muted-foreground">
@@ -147,7 +173,19 @@ function Login() {
             </Alert>
           )}
 
-          <Form {...loginForm}>
+          {mode === "company" ? (
+            <form onSubmit={handleCompanyLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="manager-email">E-mail</Label>
+                <Input id="manager-email" type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={submitting} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manager-password">Senha</Label>
+                <Input id="manager-password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={submitting} />
+              </div>
+              <Button type="submit" disabled={submitting} className="w-full">{submitting ? "Entrando..." : "Entrar"}</Button>
+            </form>
+          ) : <Form {...loginForm}>
             <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
               {/* Provider selector kept in the tree but hidden — defaults to "api". */}
               <div className="hidden" aria-hidden="true">
@@ -201,7 +239,7 @@ function Login() {
                 )}
               </Button>
             </form>
-          </Form>
+          </Form>}
         </div>
 
         <div className="text-center text-xs text-muted-foreground">

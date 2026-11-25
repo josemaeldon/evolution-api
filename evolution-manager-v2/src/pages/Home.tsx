@@ -52,7 +52,7 @@ export default function Home() {
               Gerencie suas conversas e instâncias WhatsApp em um só lugar
             </p>
             <Badge variant="secondary" className="text-sm px-3 py-1">
-              Version 2.0.0
+              Version 3.0.0
             </Badge>
           </div>
 

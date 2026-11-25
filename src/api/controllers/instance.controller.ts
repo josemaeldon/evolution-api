@@ -34,7 +34,7 @@ export class InstanceController {
 
   private readonly logger = new Logger('InstanceController');
 
-  public async createInstance(instanceData: InstanceDto) {
+  public async createInstance(instanceData: InstanceDto, companyId?: string) {
     try {
       const instance = channelController.init(instanceData, {
         configService: this.configService,
@@ -61,6 +61,7 @@ export class InstanceController {
 
       await this.waMonitor.saveInstance({
         instanceId,
+        companyId,
         integration: instanceData.integration,
         instanceName: instanceData.instanceName,
         ownerJid: instanceData.ownerJid,

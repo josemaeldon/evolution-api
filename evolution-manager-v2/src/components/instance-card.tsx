@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { TestInteractiveModal } from "@/components/test-interactive-modal";
 
 import { Instance } from "@/types/evolution.types";
+import { useManagerAccount } from "@/lib/queries/saas";
 
 const StatusBadge = ({ status }: { status?: string }) => {
   const { t } = useTranslation();
@@ -27,9 +28,10 @@ export function InstanceCard({ instance, isDeleting, onDelete }: InstanceCardPro
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [testOpen, setTestOpen] = useState(false);
+  const { data: account } = useManagerAccount();
   const numberFormatter = new Intl.NumberFormat(i18n.language);
   const displayName = instance.profileName || instance.name;
-  const goToInstance = () => navigate(`/manager/instance/${instance.id}/dashboard`);
+  const goToInstance = () => navigate(`/manager/instance/${instance.id}/${account?.role === "user" ? "chat" : "dashboard"}`);
   const canTest = instance.connectionStatus === "open";
 
   return (
@@ -86,7 +88,7 @@ export function InstanceCard({ instance, isDeleting, onDelete }: InstanceCardPro
           </div>
         </div>
 
-        <div className="flex border-t border-sidebar-border opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        {account?.role !== "user" && <div className="flex border-t border-sidebar-border opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <Button
             variant="ghost"
             className="h-12 flex-1 rounded-none text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -114,7 +116,7 @@ export function InstanceCard({ instance, isDeleting, onDelete }: InstanceCardPro
           >
             <Trash2 className="h-4 w-4" />
           </Button>
-        </div>
+        </div>}
       </CardContent>
 
       <TestInteractiveModal instance={instance} open={testOpen} onOpenChange={setTestOpen} />

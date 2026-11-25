@@ -44,6 +44,7 @@ export const saveToken = async (params: SaveCredentialsParams) => {
 };
 
 export const logout = () => {
+  localStorage.removeItem("managerSaas");
   localStorage.removeItem(TOKEN_ID.API_URL);
   localStorage.removeItem(TOKEN_ID.TOKEN);
   localStorage.removeItem(TOKEN_ID.VERSION);

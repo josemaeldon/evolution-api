@@ -4,6 +4,7 @@ import { getToken, TOKEN_ID } from "./token";
 
 export const api = axios.create({
   timeout: 30000,
+  withCredentials: true,
 });
 
 api.interceptors.request.use(
@@ -11,6 +12,12 @@ api.interceptors.request.use(
     const apiUrl = getToken(TOKEN_ID.API_URL);
     if (apiUrl) {
       config.baseURL = apiUrl.toString();
+    }
+
+    if (localStorage.getItem("managerSaas") === "company") {
+      config.baseURL = window.location.origin;
+      config.headers.delete("apikey");
+      return config;
     }
 
     if (!config.headers.has("apikey")) {
@@ -29,6 +36,7 @@ api.interceptors.request.use(
 
 export const apiGlobal = axios.create({
   timeout: 30000,
+  withCredentials: true,
 });
 
 apiGlobal.interceptors.request.use(
@@ -36,6 +44,12 @@ apiGlobal.interceptors.request.use(
     const apiUrl = getToken(TOKEN_ID.API_URL);
     if (apiUrl) {
       config.baseURL = apiUrl.toString();
+    }
+
+    if (localStorage.getItem("managerSaas") === "company") {
+      config.baseURL = window.location.origin;
+      config.headers.delete("apikey");
+      return config;
     }
 
     if (!config.headers.has("apikey")) {

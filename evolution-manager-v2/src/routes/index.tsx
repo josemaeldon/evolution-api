@@ -28,6 +28,7 @@ import LicenseCallback from "@/pages/Login/LicenseCallback";
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
 import PaymentPix from "@/pages/PaymentPix";
+import Companies from "@/pages/Companies";
 
 const router = createBrowserRouter([
   {
@@ -53,6 +54,16 @@ const router = createBrowserRouter([
   {
     path: "/manager/license/callback",
     element: <LicenseCallback />,
+  },
+  {
+    path: "/manager/companies",
+    element: (
+      <ProtectedRoute>
+        <MainLayout>
+          <Companies />
+        </MainLayout>
+      </ProtectedRoute>
+    ),
   },
   {
     path: "/manager/",

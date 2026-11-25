@@ -1,7 +1,9 @@
 import { PrismaRepository } from '@api/repository/repository.service';
+import { sessionPrincipal } from '@api/services/manager-saas.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { Auth, configService, Cors, Log, Websocket } from '@config/env.config';
 import { Logger } from '@config/logger.config';
+import { Request } from 'express';
 import { Server } from 'http';
 import { Server as SocketIO } from 'socket.io';
 
@@ -30,22 +32,24 @@ export class WebsocketController extends EventController implements EventControl
           const url = new URL(req.url || '', 'http://localhost');
           const params = new URLSearchParams(url.search);
 
-          const { remoteAddress } = req.socket;
-          const websocketConfig = configService.get<Websocket>('WEBSOCKET');
-          const allowedHosts = websocketConfig.ALLOWED_HOSTS || '127.0.0.1,::1,::ffff:127.0.0.1';
-          const allowAllHosts = allowedHosts.trim() === '*';
-          const isAllowedHost =
-            allowAllHosts ||
-            allowedHosts
-              .split(',')
-              .map((h) => h.trim())
-              .includes(remoteAddress);
+          const apiKey = params.get('apikey') || (req.headers.apikey as string);
+          const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+          if (apiKey && apiKey === globalToken) return callback(null, true);
 
-          if (params.has('EIO') && isAllowedHost) {
+          const manager = await sessionPrincipal(req as Request);
+          if (manager?.companyId) {
+            const origin = req.headers.origin;
+            const host = req.headers.host;
+            if (!origin || new URL(origin).host !== host) return callback('Invalid origin', false);
+            const instanceName = params.get('instanceName');
+            if (!instanceName) return callback('Instance required', false);
+            const owned = await this.prismaRepository.instance.findFirst({
+              where: { name: instanceName, companyId: manager.companyId },
+              select: { id: true },
+            });
+            if (!owned) return callback('Instance not allowed', false);
             return callback(null, true);
           }
-
-          const apiKey = params.get('apikey') || (req.headers.apikey as string);
 
           if (!apiKey) {
             this.logger.error('Connection rejected: apiKey not provided');
@@ -55,7 +59,6 @@ export class WebsocketController extends EventController implements EventControl
           const instance = await this.prismaRepository.instance.findFirst({ where: { token: apiKey } });
 
           if (!instance) {
-            const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
             if (apiKey !== globalToken) {
               this.logger.error('Connection rejected: invalid global token');
               return callback('Invalid global token', false);
@@ -71,7 +74,62 @@ export class WebsocketController extends EventController implements EventControl
       },
     });
 
+    this.socket.use(async (socket, next) => {
+      try {
+        const apiKey = String(socket.handshake.query.apikey || socket.handshake.headers.apikey || '');
+        const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+        if (apiKey && apiKey === globalToken) {
+          socket.data.legacyGlobal = true;
+          return next();
+        }
+        const principal = await sessionPrincipal(socket.request as Request);
+        if (principal?.companyId) {
+          const instanceName = String(socket.handshake.query.instanceName || '');
+          const owned = await this.prismaRepository.instance.findFirst({
+            where: { name: instanceName, companyId: principal.companyId },
+            select: { id: true },
+          });
+          if (!owned) return next(new Error('Instance not allowed'));
+          socket.data.managerInstanceName = instanceName;
+        } else {
+          const instance = apiKey
+            ? await this.prismaRepository.instance.findFirst({
+                where: { token: apiKey },
+                select: { name: true },
+              })
+            : null;
+          if (!instance) return next(new Error('Invalid token'));
+          socket.data.legacyInstanceName = instance.name;
+        }
+        next();
+      } catch {
+        next(new Error('Authentication error'));
+      }
+    });
+
+    this.socket.of(/^\/[^/]+$/).use(async (socket, next) => {
+      try {
+        const apiKey = String(socket.handshake.query.apikey || socket.handshake.headers.apikey || '');
+        const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+        if (apiKey && apiKey === globalToken) return next();
+        const instanceName = socket.nsp.name.slice(1);
+        const instance = apiKey
+          ? await this.prismaRepository.instance.findFirst({
+              where: { name: instanceName, token: apiKey },
+              select: { id: true },
+            })
+          : null;
+        if (!instance) return next(new Error('Instance not allowed'));
+        next();
+      } catch {
+        next(new Error('Authentication error'));
+      }
+    });
+
     this.socket.on('connection', (socket) => {
+      if (socket.data.managerInstanceName) socket.join(`manager:${socket.data.managerInstanceName}`);
+      else if (socket.data.legacyGlobal) socket.join('legacy-global');
+      else if (socket.data.legacyInstanceName) socket.join(`legacy-instance:${socket.data.legacyInstanceName}`);
       this.logger.info('User connected');
 
       socket.on('disconnect', () => {
@@ -79,6 +137,7 @@ export class WebsocketController extends EventController implements EventControl
       });
 
       socket.on('sendNode', async (data) => {
+        if (!socket.data.legacyGlobal && socket.data.legacyInstanceName !== data?.instanceId) return;
         try {
           await this.waMonitor.waInstances[data.instanceId].baileysSendNode(data.stanza);
           this.logger.info('Node sent successfully');
@@ -120,10 +179,6 @@ export class WebsocketController extends EventController implements EventControl
     integration,
     extra,
   }: EmitData): Promise<void> {
-    if (integration && !integration.includes('websocket')) {
-      return;
-    }
-
     if (!this.status) {
       return;
     }
@@ -141,8 +196,15 @@ export class WebsocketController extends EventController implements EventControl
       apikey: apiKey,
     };
 
+    this.socket.to(`manager:${instanceName}`).emit(event, { ...message, apikey: undefined });
+
+    if (integration && !integration.includes('websocket')) {
+      return;
+    }
+
     if (configService.get<Websocket>('WEBSOCKET')?.GLOBAL_EVENTS) {
-      this.socket.emit(event, message);
+      this.socket.to('legacy-global').emit(event, message);
+      this.socket.to(`legacy-instance:${instanceName}`).emit(event, message);
 
       if (logEnabled) {
         this.logger.log({ local: `${origin}.sendData-WebsocketGlobal`, ...message });

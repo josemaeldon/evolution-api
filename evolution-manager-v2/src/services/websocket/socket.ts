@@ -12,9 +12,10 @@ export interface WebSocketConnection {
   disconnect: () => void;
 }
 
-export const connectSocket = (serverUrl: string, token?: string): WebSocketConnection => {
+export const connectSocket = (serverUrl: string, token?: string, instanceName?: string): WebSocketConnection => {
   const apiKey = token || getToken(TOKEN_ID.INSTANCE_TOKEN) || getToken(TOKEN_ID.TOKEN) || "";
-  const key = `${serverUrl}\0${apiKey}`;
+  const companyMode = localStorage.getItem("managerSaas") === "company";
+  const key = `${serverUrl}\0${apiKey}\0${instanceName || ""}`;
   const existing = activeSockets.get(key);
   if (existing) {
     existing.users += 1;
@@ -25,7 +26,8 @@ export const connectSocket = (serverUrl: string, token?: string): WebSocketConne
   const socket = io(serverUrl, {
     // HTTP long polling also works behind proxies that do not forward WebSocket upgrades.
     transports: ["polling"],
-    query: { apikey: apiKey },
+    query: companyMode ? { instanceName } : { apikey: apiKey },
+    withCredentials: true,
     autoConnect: false,
     reconnection: true,
     reconnectionAttempts: 2,

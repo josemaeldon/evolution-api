@@ -1210,6 +1210,21 @@ export class BaileysStartupService extends ChannelStartupService {
             messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
           }
 
+          // A sent message may also arrive through Baileys after it was saved by the send endpoint.
+          if (received.key.fromMe && received.key.id) {
+            const alreadyStored = await this.prismaRepository.message.findFirst({
+              where: {
+                instanceId: this.instanceId,
+                AND: [
+                  { key: { path: ['id'], equals: received.key.id } },
+                  { key: { path: ['remoteJid'], equals: messageRaw.key.remoteJid } },
+                ],
+              },
+              select: { id: true },
+            });
+            if (alreadyStored) continue;
+          }
+
           if (messageRaw.messageType === 'pollUpdateMessage') {
             const pollCreationKey = messageRaw.message.pollUpdateMessage.pollCreationMessageKey;
             const pollMessage = (await this.getMessage(pollCreationKey, true)) as proto.IWebMessageInfo;
@@ -3868,12 +3883,35 @@ export class BaileysStartupService extends ChannelStartupService {
       throw new BadRequestException('Mensagem indisponível para encaminhamento');
     }
 
-    return await this.client.sendMessage(createJid(data.number), {
+    const forwarded = await this.client.sendMessage(createJid(data.number), {
       forward: {
         key: source.key as proto.IMessageKey,
         message: this.deserializeMessageBuffers(source.message) as proto.IMessage,
       },
     });
+
+    if (!forwarded?.message || !forwarded.key?.id) {
+      throw new BadRequestException('Não foi possível encaminhar a mensagem');
+    }
+
+    const messageRaw = this.prepareMessage(forwarded);
+    if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
+      const existing = await this.prismaRepository.message.findFirst({
+        where: {
+          instanceId: this.instanceId,
+          AND: [
+            { key: { path: ['id'], equals: forwarded.key.id } },
+            { key: { path: ['remoteJid'], equals: forwarded.key.remoteJid } },
+          ],
+        },
+      });
+      if (!existing) {
+        await this.prismaRepository.message.create({ data: messageRaw });
+      }
+    }
+
+    this.sendDataWebhook(Events.SEND_MESSAGE, messageRaw);
+    return messageRaw;
   }
 
   public async deleteMessage(del: DeleteMessage) {

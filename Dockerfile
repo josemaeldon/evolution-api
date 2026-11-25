@@ -3,7 +3,7 @@ FROM node:24-alpine AS builder
 RUN apk update && \
     apk add --no-cache git ffmpeg wget curl bash openssl
 
-LABEL version="2.3.1" description="Api to control whatsapp features through http requests." 
+LABEL version="3.0.0" description="Api to control whatsapp features through http requests."
 LABEL maintainer="Davidson Gomes" git="https://github.com/DavidsonGomes"
 LABEL contact="contato@evolution-api.com"
 
@@ -20,6 +20,11 @@ COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
+COPY ./evolution-manager-v2/package*.json ./evolution-manager-v2/
+RUN cd ./evolution-manager-v2 && npm ci --ignore-scripts
+COPY ./evolution-manager-v2 ./evolution-manager-v2
+RUN cd ./evolution-manager-v2 && npm run build
+RUN rm -rf ./manager/dist && mkdir -p ./manager/dist && cp -r ./evolution-manager-v2/dist/. ./manager/dist/ && node ./manager/localize-assets.mjs
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 

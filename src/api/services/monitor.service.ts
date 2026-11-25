@@ -244,6 +244,7 @@ export class WAMonitoringService {
       await this.prismaRepository.instance.create({
         data: {
           id: data.instanceId,
+          companyId: data.companyId,
           name: data.instanceName,
           ownerJid: data.ownerJid,
           profileName: data.profileName,

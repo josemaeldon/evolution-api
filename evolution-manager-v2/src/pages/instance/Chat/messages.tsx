@@ -570,7 +570,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       return;
     }
 
-    const socket = connectSocket(serverUrl, instance.token);
+    const socket = connectSocket(serverUrl, instance.token, instance.name);
 
     // Function to update messages from websocket events
     const updateMessagesFromWebsocket = (_eventType: string, data: any) => {

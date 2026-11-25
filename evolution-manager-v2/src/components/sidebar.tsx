@@ -6,6 +6,7 @@ import {
   IterationCcw,
   LayoutDashboard,
   MessageCircle,
+  Building2,
   Zap,
 } from "lucide-react";
 import { useMemo } from "react";
@@ -15,6 +16,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useTheme } from "@/components/theme-provider";
 import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
 import { useInstance } from "@/contexts/InstanceContext";
+import { useManagerAccount } from "@/lib/queries/saas";
 
 import { FEATURES, FeatureKey, isFeatureEnabled } from "@/lib/provider/features";
 import { cn } from "@/lib/utils";
@@ -113,9 +115,13 @@ function ExternalLinks() {
 
 function MainSidebar() {
   const { t } = useTranslation();
+  const { data: account } = useManagerAccount();
   return (
     <SidebarShell footer={<ExternalLinks />}>
       <NavItem to="/manager" icon={LayoutDashboard} label={t("sidebar.dashboard")} />
+      {(account?.role === "superadmin" || account?.role === "admin") && (
+        <NavItem to="/manager/companies" icon={Building2} label={account.role === "superadmin" ? "Empresas e usuários" : "Usuários da empresa"} />
+      )}
     </SidebarShell>
   );
 }
@@ -124,6 +130,7 @@ function InstanceSidebar() {
   const { t } = useTranslation();
   const { instance } = useInstance();
   const { pathname } = useLocation();
+  const { data: account } = useManagerAccount();
 
   const base = instance ? `/manager/instance/${instance.id}` : "";
 
@@ -170,6 +177,7 @@ function InstanceSidebar() {
   const visibleMenus = useMemo(
     () =>
       menus
+        .filter((menu) => account?.role !== "user" || ("id" in menu && menu.id === "chat"))
         .map((menu) => {
           if ("children" in menu) {
             return { ...menu, children: menu.children.filter((c) => shouldShow(c.id)) };
@@ -180,7 +188,7 @@ function InstanceSidebar() {
           if ("children" in menu) return menu.children.length > 0;
           return shouldShow(menu.id);
         }),
-    [menus],
+    [menus, account?.role],
   );
 
   return (
