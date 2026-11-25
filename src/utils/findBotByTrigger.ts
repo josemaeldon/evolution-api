@@ -1,21 +1,15 @@
 import { advancedOperatorsSearch } from './advancedOperatorsSearch';
 
 export const findBotByTrigger = async (botRepository: any, content: string, instanceId: string) => {
-  // Only an explicit "all" trigger may start a bot for every message.
-  const findTriggerAll = await botRepository.findFirst({
-    where: {
-      enabled: true,
-      triggerType: 'all',
-      instanceId: instanceId,
-    },
-  });
-
-  if (findTriggerAll) {
-    return findTriggerAll;
-  }
-
   if (!content?.trim()) {
-    return null;
+    // An explicit "all" trigger may start a bot even for messages without text.
+    return botRepository.findFirst({
+      where: {
+        enabled: true,
+        triggerType: 'all',
+        instanceId: instanceId,
+      },
+    });
   }
 
   const findTriggerAdvanced = await botRepository.findMany({
@@ -48,6 +42,19 @@ export const findBotByTrigger = async (botRepository: any, content: string, inst
 
   if (findTriggerEquals) {
     return findTriggerEquals;
+  }
+
+  // Broad "all" triggers must not shadow a matching exact keyword trigger.
+  const findTriggerAll = await botRepository.findFirst({
+    where: {
+      enabled: true,
+      triggerType: 'all',
+      instanceId: instanceId,
+    },
+  });
+
+  if (findTriggerAll) {
+    return findTriggerAll;
   }
 
   // Check for regex match

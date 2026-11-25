@@ -50,6 +50,22 @@ test('an all trigger still starts on any message', async () => {
   assert.equal(await findBotByTrigger(repository([bot]), 'qualquer mensagem', 'instance-1'), bot);
 });
 
+test('an exact keyword trigger takes precedence over an all trigger', async () => {
+  const exactBot: Bot = {
+    id: 'exact',
+    instanceId: 'instance-1',
+    enabled: true,
+    triggerType: 'keyword',
+    triggerOperator: 'equals',
+    triggerValue: 'iniciar',
+  };
+  const allBot: Bot = { id: 'all', instanceId: 'instance-1', enabled: true, triggerType: 'all' };
+  const bots = repository([allBot, exactBot]);
+
+  assert.equal(await findBotByTrigger(bots, 'iniciar', 'instance-1'), exactBot);
+  assert.equal(await findBotByTrigger(bots, 'outra mensagem', 'instance-1'), allBot);
+});
+
 test('an empty contains trigger does not match every message', async () => {
   const bot: Bot = {
     id: 'empty',
