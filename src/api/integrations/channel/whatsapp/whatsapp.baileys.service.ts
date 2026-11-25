@@ -117,6 +117,7 @@ import makeWASocket, {
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
+  isLidUser,
   isPnUser,
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
@@ -3822,12 +3823,33 @@ export class BaileysStartupService extends ChannelStartupService {
   public async markMessageAsRead(data: ReadMessageDto) {
     try {
       const keys: proto.IMessageKey[] = [];
+      const remoteJids = new Set<string>();
       data.readMessages.forEach((read) => {
-        if (isJidGroup(read.remoteJid) || isPnUser(read.remoteJid)) {
+        if (isJidGroup(read.remoteJid) || isPnUser(read.remoteJid) || isLidUser(read.remoteJid)) {
           keys.push({ remoteJid: read.remoteJid, fromMe: read.fromMe, id: read.id });
+          if (!read.fromMe) remoteJids.add(read.remoteJid);
         }
       });
       await this.client.readMessages(keys);
+
+      await Promise.all(
+        data.readMessages
+          .filter((read) => !read.fromMe && remoteJids.has(read.remoteJid))
+          .map(
+            (read) =>
+              this.prismaRepository.$executeRaw`
+              UPDATE "Message"
+              SET "status" = ${status[4]}
+              WHERE "instanceId" = ${this.instanceId}
+                AND "key"->>'id' = ${read.id}
+                AND "key"->>'remoteJid' = ${read.remoteJid}
+                AND "key"->>'fromMe' = 'false'
+                AND ("status" IS NULL OR "status" IN (${status[2]}, ${status[3]}))
+            `,
+          ),
+      );
+      await Promise.all(Array.from(remoteJids, (remoteJid) => this.updateChatUnreadMessages(remoteJid)));
+
       return { message: 'Read messages', read: 'success' };
     } catch (error) {
       throw new InternalServerErrorException('Read messages fail', error.toString());
@@ -4946,7 +4968,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
   private async updateChatUnreadMessages(remoteJid: string): Promise<number> {
     const [chat, unreadMessages] = await Promise.all([
-      this.prismaRepository.chat.findFirst({ where: { remoteJid } }),
+      this.prismaRepository.chat.findFirst({ where: { instanceId: this.instanceId, remoteJid } }),
       // Use raw SQL to avoid JSON path issues
       this.prismaRepository.$queryRaw`
         SELECT COUNT(*)::int as count FROM "Message"

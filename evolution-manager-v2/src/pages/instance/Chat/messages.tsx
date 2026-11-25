@@ -684,6 +684,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       )
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
+        queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
       })
       .catch((error) => {
         unreadMessages.forEach((message) => readReceiptIdsRef.current.delete(message.key.id));
