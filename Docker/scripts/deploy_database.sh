@@ -7,9 +7,11 @@ if [ "$DOCKER_ENV" != "true" ]; then
 fi
 
 if [[ "$DATABASE_PROVIDER" == "postgresql" || "$DATABASE_PROVIDER" == "psql_bouncer" ]]; then
-    export DATABASE_URL
     echo "Deploying migrations for $DATABASE_PROVIDER"
-    echo "Database URL: $DATABASE_URL"
+    if [ -z "$DATABASE_CONNECTION_URI" ]; then
+        echo "DATABASE_CONNECTION_URI is required to deploy migrations"
+        exit 1
+    fi
     # rm -rf ./prisma/migrations
     npm run db:deploy
     if [ $? -ne 0 ]; then
