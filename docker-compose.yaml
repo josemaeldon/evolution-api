@@ -12,6 +12,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - evolution_instances:/evolution/instances
+      - evolution_media:/evolution/storage/media
     networks:
       - evolution-net
       - dokploy-network
@@ -73,6 +74,7 @@ services:
 
 volumes:
   evolution_instances:
+  evolution_media:
   evolution_redis:
   postgres_data:
 

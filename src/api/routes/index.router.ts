@@ -4,6 +4,7 @@ import Telemetry from '@api/guards/telemetry.guard';
 import { ChannelRouter } from '@api/integrations/channel/channel.router';
 import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
+import { getLocalStorageFilePath } from '@api/integrations/storage/s3/libs/minio.server';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
 import { managerSaasRouter } from '@api/routes/manager-saas.router';
 import { prismaRepository, waMonitor } from '@api/server.module';
@@ -166,6 +167,22 @@ if (metricsConfig.ENABLED) {
 if (!serverConfig.DISABLE_MANAGER) {
   router.use('/manager', new ViewsRouter().router);
 }
+
+router.get('/storage/media/:key', (req, res) => {
+  try {
+    const key = req.params.key;
+    if (!/^[A-Za-z0-9_-]+$/.test(key)) return res.status(400).send('Invalid media key');
+    const fileName = Buffer.from(key, 'base64url').toString();
+    if (!fileName || Buffer.from(fileName).toString('base64url') !== key)
+      return res.status(400).send('Invalid media key');
+    const filePath = getLocalStorageFilePath(fileName);
+    if (!fs.existsSync(filePath)) return res.status(404).send('File not found');
+    res.set('Content-Type', mimeTypes.lookup(filePath) || 'application/octet-stream');
+    return res.sendFile(filePath);
+  } catch {
+    return res.status(404).send('File not found');
+  }
+});
 
 router.get('/assets/*', (req, res) => {
   const fileName = req.params[0];

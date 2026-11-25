@@ -2,6 +2,7 @@ import { InstanceDto } from '@api/dto/instance.dto';
 import { MediaDto } from '@api/integrations/storage/s3/dto/media.dto';
 import { getObjectUrl } from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
+import { getCompanyStorageTarget, getMediaStorageTarget } from '@api/services/manager-storage.service';
 import { Logger } from '@config/logger.config';
 import { BadRequestException } from '@exceptions';
 
@@ -25,6 +26,8 @@ export class S3Service {
           type: true,
           mimetype: true,
           createdAt: true,
+          storageBackend: true,
+          storageBucket: true,
           Message: true,
         },
       });
@@ -41,7 +44,9 @@ export class S3Service {
 
   public async getMediaUrl(instance: InstanceDto, data: MediaDto) {
     const media = (await this.getMedia(instance, { id: data.id }))[0];
-    const mediaUrl = await getObjectUrl(media.fileName, data.expiry);
+    const companyTarget = await getCompanyStorageTarget(this.prismaRepository, instance.instanceId);
+    const storageTarget = getMediaStorageTarget(media, companyTarget);
+    const mediaUrl = await getObjectUrl(media.fileName, data.expiry, storageTarget);
     return {
       mediaUrl,
       ...media,

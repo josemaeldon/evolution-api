@@ -20,6 +20,8 @@ export type ManagerCompany = {
   maxInstances: number;
   instanceCount: number;
   storageQuotaMb: number;
+  storageBackend: "local" | "minio" | null;
+  storageBucket: string | null;
   storageUsedBytes: number;
   active: boolean;
   _count: { users: number; instances: number };

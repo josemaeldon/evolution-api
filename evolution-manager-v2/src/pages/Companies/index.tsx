@@ -30,6 +30,8 @@ export default function Companies() {
   const [companyName, setCompanyName] = useState("");
   const [companyLimit, setCompanyLimit] = useState(1);
   const [storageQuotaMb, setStorageQuotaMb] = useState(10240);
+  const [storageBackend, setStorageBackend] = useState<"local" | "minio">("local");
+  const [storageBucket, setStorageBucket] = useState("");
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userPassword, setUserPassword] = useState("");
@@ -145,20 +147,33 @@ export default function Companies() {
 
       {superadmin && (
         <form
-          className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_150px_180px_auto]"
+          className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_130px_150px_130px_1fr_auto]"
           onSubmit={(event) => {
             event.preventDefault();
             run(async () => {
-              const response = await saasApi.post("/saas/companies", { name: companyName, maxInstances: companyLimit, storageQuotaMb });
+              const response = await saasApi.post("/saas/companies", {
+                name: companyName,
+                maxInstances: companyLimit,
+                storageQuotaMb,
+                storageBackend,
+                storageBucket: storageBackend === "minio" ? storageBucket.trim() : null,
+              });
               setSelectedId(response.data.id);
               setCompanyName("");
               setCompanyLimit(1);
               setStorageQuotaMb(10240);
+              setStorageBackend("local");
+              setStorageBucket("");
             }, "Empresa criada");
           }}>
           <Input aria-label="Nome da empresa" placeholder="Nome da empresa" required maxLength={255} value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
           <Input aria-label="Limite de instâncias" type="number" min={0} required value={companyLimit} onChange={(event) => setCompanyLimit(Number(event.target.value))} />
           <Input aria-label="Cota de armazenamento em GB" type="number" min={0} step={0.1} required value={storageQuotaMb / 1024} onChange={(event) => setStorageQuotaMb(Math.round(Number(event.target.value) * 1024))} />
+          <select aria-label="Armazenamento da empresa" className="h-10 rounded-md border bg-background px-3 text-sm" value={storageBackend} onChange={(event) => setStorageBackend(event.target.value as "local" | "minio")}>
+            <option value="local">Local</option>
+            <option value="minio">MinIO</option>
+          </select>
+          {storageBackend === "minio" && <Input aria-label="Bucket MinIO da empresa" placeholder="Bucket MinIO" pattern="[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]" required value={storageBucket} onChange={(event) => setStorageBucket(event.target.value)} />}
           <Button type="submit" disabled={busy}>
             Criar empresa
           </Button>
@@ -175,7 +190,7 @@ export default function Companies() {
               className={`w-full rounded-lg border p-3 text-left ${selectedId === company.id ? "border-primary bg-primary/10" : "hover:bg-muted"}`}>
               <span className="block font-medium">{company.name}</span>
               <span className="text-xs text-muted-foreground">
-                {company.instanceCount}/{company.maxInstances} instâncias · {company._count.users} usuários · {formatStorage(company.storageUsedBytes)} / {formatQuota(company.storageQuotaMb)}{company.active ? "" : " · Inativa"}
+                {company.instanceCount}/{company.maxInstances} instâncias · {company._count.users} usuários · {formatStorage(company.storageUsedBytes)} / {formatQuota(company.storageQuotaMb)} · {company.storageBackend === "minio" ? `MinIO/${company.storageBucket || "bucket não definido"}` : "Local"}{company.active ? "" : " · Inativa"}
               </span>
             </button>
           ))}
@@ -199,6 +214,17 @@ export default function Companies() {
                     Cota de armazenamento (GB)
                     <Input type="number" min={0} step={0.1} defaultValue={selected.storageQuotaMb / 1024} key={`${selected.id}-storage`} id="company-storage-quota" className="w-44" />
                   </label>
+                  <label className="space-y-1 text-sm">
+                    Armazenamento
+                    <select defaultValue={selected.storageBackend || "local"} key={`${selected.id}-backend`} id="company-storage-backend" className="h-10 rounded-md border bg-background px-3 text-sm">
+                      <option value="local">Local</option>
+                      <option value="minio">MinIO</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    Bucket MinIO
+                    <Input defaultValue={selected.storageBucket || ""} key={`${selected.id}-bucket`} id="company-storage-bucket" className="w-48" placeholder="ex.: empresa-arquivos" pattern="[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]" />
+                  </label>
                   <Button
                     disabled={busy}
                     variant="outline"
@@ -209,6 +235,10 @@ export default function Companies() {
                             name: (document.getElementById("company-name") as HTMLInputElement).value,
                             maxInstances: Number((document.getElementById("company-limit") as HTMLInputElement).value),
                             storageQuotaMb: Math.round(Number((document.getElementById("company-storage-quota") as HTMLInputElement).value) * 1024),
+                            storageBackend: (document.getElementById("company-storage-backend") as HTMLSelectElement).value,
+                            storageBucket: (document.getElementById("company-storage-backend") as HTMLSelectElement).value === "minio"
+                              ? (document.getElementById("company-storage-bucket") as HTMLInputElement).value.trim()
+                              : null,
                           }),
                         "Empresa atualizada",
                       )

@@ -1,4 +1,9 @@
-import { BUCKET, deleteFile, getObjectUrl } from '@api/integrations/storage/s3/libs/minio.server';
+import {
+  deleteFile,
+  getObjectUrl,
+  MINIO_AVAILABLE,
+  STORAGE_BACKEND,
+} from '@api/integrations/storage/s3/libs/minio.server';
 import { prismaRepository } from '@api/server.module';
 import {
   clearSessionCookie,
@@ -13,7 +18,13 @@ import {
   setManagerPrincipal,
   setSessionCookie,
 } from '@api/services/manager-saas.service';
-import { getCompanyStorageUsage } from '@api/services/manager-storage.service';
+import {
+  getCompanyStorageTargetById,
+  getCompanyStorageUsage,
+  getMediaStorageTarget,
+  pinLegacyMediaStorageTarget,
+  resolveCompanyStorageTarget,
+} from '@api/services/manager-storage.service';
 import { Prisma } from '@prisma/client';
 import { scrypt as scryptCallback } from 'crypto';
 import { Router } from 'express';
@@ -124,10 +135,15 @@ router.get('/companies', async (req, res) => {
     orderBy: { name: 'asc' },
   });
   const companiesWithUsage = await Promise.all(
-    companies.map(async (company) => ({
-      ...company,
-      storageUsedBytes: (await getCompanyStorageUsage(prismaRepository, company.id)).usedBytes,
-    })),
+    companies.map(async (company) => {
+      const storageTarget = resolveCompanyStorageTarget(company);
+      return {
+        ...company,
+        storageBackend: storageTarget.backend,
+        storageBucket: storageTarget.bucket,
+        storageUsedBytes: (await getCompanyStorageUsage(prismaRepository, company.id)).usedBytes,
+      };
+    }),
   );
   return res.json(companiesWithUsage);
 });
@@ -137,17 +153,29 @@ router.post('/companies', async (req, res) => {
   const name = String(req.body?.name || '').trim();
   const maxInstances = Number(req.body?.maxInstances);
   const storageQuotaMb = Number(req.body?.storageQuotaMb);
+  const storageBackend = req.body?.storageBackend === undefined ? STORAGE_BACKEND : String(req.body.storageBackend);
+  const storageBucket = storageBackend === 'minio' ? String(req.body?.storageBucket || '').trim() : null;
+  if (storageBackend === 'minio' && !MINIO_AVAILABLE) {
+    return res.status(400).json(fail('Configure endpoint, chave de acesso e chave secreta do MinIO/S3 no servidor'));
+  }
   if (
     !name ||
     name.length > 255 ||
     !Number.isInteger(maxInstances) ||
     maxInstances < 0 ||
     !Number.isSafeInteger(storageQuotaMb) ||
-    storageQuotaMb < 0
+    storageQuotaMb < 0 ||
+    !['local', 'minio'].includes(storageBackend) ||
+    (storageBackend === 'minio' && !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(storageBucket || ''))
   ) {
     return res.status(400).json(fail('Informe nome e limites válidos de instâncias e armazenamento'));
   }
-  const company = await prismaRepository.managerCompany.create({ data: { name, maxInstances, storageQuotaMb } });
+  if (storageBucket && (await prismaRepository.managerCompany.findUnique({ where: { storageBucket } }))) {
+    return res.status(409).json(fail('Esse bucket MinIO já está atribuído a outra empresa'));
+  }
+  const company = await prismaRepository.managerCompany.create({
+    data: { name, maxInstances, storageQuotaMb, storageBackend, storageBucket },
+  });
   return res.status(201).json(company);
 });
 
@@ -159,6 +187,16 @@ router.patch('/companies/:companyId', async (req, res) => {
   const maxInstances = req.body?.maxInstances === undefined ? company.maxInstances : Number(req.body.maxInstances);
   const storageQuotaMb =
     req.body?.storageQuotaMb === undefined ? company.storageQuotaMb : Number(req.body.storageQuotaMb);
+  const currentTarget = resolveCompanyStorageTarget(company);
+  const storageBackend =
+    req.body?.storageBackend === undefined ? currentTarget.backend : String(req.body.storageBackend);
+  const requestedBucket =
+    req.body?.storageBucket === undefined ? currentTarget.bucket : String(req.body.storageBucket || '').trim();
+  const storageBucket = storageBackend === 'minio' ? requestedBucket || null : null;
+  const storageConfigProvided = req.body?.storageBackend !== undefined || req.body?.storageBucket !== undefined;
+  if (storageConfigProvided && storageBackend === 'minio' && !MINIO_AVAILABLE) {
+    return res.status(400).json(fail('Configure endpoint, chave de acesso e chave secreta do MinIO/S3 no servidor'));
+  }
   const active = req.body?.active === undefined ? company.active : req.body.active;
   if (
     !name ||
@@ -167,13 +205,30 @@ router.patch('/companies/:companyId', async (req, res) => {
     maxInstances < company.instanceCount ||
     !Number.isSafeInteger(storageQuotaMb) ||
     storageQuotaMb < 0 ||
-    typeof active !== 'boolean'
+    typeof active !== 'boolean' ||
+    !['local', 'minio'].includes(storageBackend) ||
+    (storageBackend === 'minio' && !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(storageBucket || ''))
   ) {
     return res.status(400).json(fail('Dados inválidos ou limite menor que os recursos em uso'));
   }
+  if (storageConfigProvided && storageBucket) {
+    const bucketOwner = await prismaRepository.managerCompany.findUnique({ where: { storageBucket } });
+    if (bucketOwner && bucketOwner.id !== company.id) {
+      return res.status(409).json(fail('Esse bucket MinIO já está atribuído a outra empresa'));
+    }
+  }
+  if (storageConfigProvided && (storageBackend !== currentTarget.backend || storageBucket !== currentTarget.bucket)) {
+    await pinLegacyMediaStorageTarget(prismaRepository, company.id, currentTarget);
+  }
   const updated = await prismaRepository.managerCompany.update({
     where: { id: company.id },
-    data: { name, maxInstances, storageQuotaMb, active },
+    data: {
+      name,
+      maxInstances,
+      storageQuotaMb,
+      ...(storageConfigProvided ? { storageBackend, storageBucket } : {}),
+      active,
+    },
   });
   return res.json(updated);
 });
@@ -187,13 +242,19 @@ router.get('/storage', async (req, res) => {
   const [company, usage] = await Promise.all([
     prismaRepository.managerCompany.findUnique({
       where: { id: companyId },
-      select: { storageQuotaMb: true },
+      select: { storageQuotaMb: true, storageBackend: true, storageBucket: true },
     }),
     getCompanyStorageUsage(prismaRepository, companyId),
   ]);
   if (!company) return res.status(404).json(fail('Empresa não encontrada'));
 
-  return res.json({ ...usage, storageQuotaMb: company.storageQuotaMb, storageEnabled: BUCKET.ENABLE });
+  return res.json({
+    ...usage,
+    storageQuotaMb: company.storageQuotaMb,
+    storageEnabled: true,
+    storageBackend: resolveCompanyStorageTarget(company).backend,
+    storageBucket: resolveCompanyStorageTarget(company).bucket,
+  });
 });
 
 router.get('/media', async (req, res) => {
@@ -248,13 +309,13 @@ router.get('/media/:mediaId/url', async (req, res) => {
   const companyId = principal.companyId;
   if (principal.role !== 'admin' || !companyId)
     return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
-  if (!BUCKET.ENABLE) return res.status(503).json(fail('Armazenamento MinIO/S3 não está habilitado'));
   const media = await prismaRepository.media.findFirst({
     where: { id: req.params.mediaId, Instance: { is: { companyId } } },
-    select: { fileName: true },
+    select: { fileName: true, storageBackend: true, storageBucket: true },
   });
   if (!media) return res.status(404).json(fail('Arquivo não encontrado'));
-  return res.json({ url: await getObjectUrl(media.fileName) });
+  const companyTarget = await getCompanyStorageTargetById(prismaRepository, companyId);
+  return res.json({ url: await getObjectUrl(media.fileName, undefined, getMediaStorageTarget(media, companyTarget)) });
 });
 
 router.delete('/media', async (req, res) => {
@@ -262,8 +323,6 @@ router.delete('/media', async (req, res) => {
   const companyId = principal.companyId;
   if (principal.role !== 'admin' || !companyId)
     return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
-  if (!BUCKET.ENABLE) return res.status(503).json(fail('Armazenamento MinIO/S3 não está habilitado'));
-
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > 500 || ids.some((id) => typeof id !== 'string')) {
     return res.status(400).json(fail('Selecione de 1 a 500 arquivos para excluir'));
@@ -273,9 +332,10 @@ router.delete('/media', async (req, res) => {
     where: { id: { in: ids }, Instance: { is: { companyId } } },
     include: { Message: { select: { message: true } } },
   });
+  const companyTarget = await getCompanyStorageTargetById(prismaRepository, companyId);
   let deleted = 0;
   for (const file of files) {
-    const result = await deleteFile('evolution-api', file.fileName);
+    const result = await deleteFile('evolution-api', file.fileName, getMediaStorageTarget(file, companyTarget));
     if (result) return res.status(502).json(fail('Não foi possível excluir um arquivo do armazenamento'));
 
     const storedMessage = file.Message.message;

@@ -12,8 +12,9 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { chatbotController } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import { getCompanyStorageTarget, hasCompanyStorageCapacity } from '@api/services/manager-storage.service';
 import { Events, wa } from '@api/types/wa.types';
-import { AudioConverter, Chatwoot, ConfigService, Openai, S3 } from '@config/env.config';
+import { AudioConverter, Chatwoot, ConfigService, Openai } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import { createJid } from '@utils/createJid';
 import { sendTelemetry } from '@utils/sendTelemetry';
@@ -454,53 +455,77 @@ export class EvolutionStartupService extends ChannelStartupService {
 
       const { base64 } = messageRaw.message;
       delete messageRaw.message.base64;
+      let mediaRecord:
+        | {
+            fileName: string;
+            type: string;
+            mimetype: string;
+            sizeBytes: number;
+            storageBackend: string;
+            storageBucket: string | null | undefined;
+          }
+        | undefined;
 
       if (base64 || file || audioFile) {
-        if (this.configService.get<S3>('S3').ENABLE) {
-          try {
-            // Verificação adicional para garantir que há conteúdo de mídia real
-            const hasRealMedia = this.hasValidMediaContent(messageRaw);
+        try {
+          // Verificação adicional para garantir que há conteúdo de mídia real
+          const hasRealMedia = this.hasValidMediaContent(messageRaw);
 
-            if (!hasRealMedia) {
-              this.logger.warn('Message detected as media but contains no valid media content');
-            } else {
-              const fileBuffer = audioFile?.buffer || file?.buffer;
-              const buffer = base64 ? Buffer.from(base64, 'base64') : fileBuffer;
+          if (!hasRealMedia) {
+            this.logger.warn('Message detected as media but contains no valid media content');
+          } else {
+            const fileBuffer = audioFile?.buffer || file?.buffer;
+            const buffer = base64 ? Buffer.from(base64, 'base64') : fileBuffer;
 
-              let mediaType: string;
-              let mimetype = audioFile?.mimetype || file.mimetype;
+            let mediaType: string;
+            let mimetype = audioFile?.mimetype || file.mimetype;
 
-              if (messageRaw.messageType === 'documentMessage') {
-                mediaType = 'document';
-                mimetype = !mimetype ? 'application/pdf' : mimetype;
-              } else if (messageRaw.messageType === 'imageMessage') {
-                mediaType = 'image';
-                mimetype = !mimetype ? 'image/png' : mimetype;
-              } else if (messageRaw.messageType === 'audioMessage') {
-                mediaType = 'audio';
-                mimetype = !mimetype ? 'audio/mp4' : mimetype;
-              } else if (messageRaw.messageType === 'videoMessage') {
-                mediaType = 'video';
-                mimetype = !mimetype ? 'video/mp4' : mimetype;
-              }
-
-              const fileName = `${messageRaw.key.id}.${mimetype.split('/')[1]}`;
-
-              const size = buffer.byteLength;
-
-              const fullName = join(`${this.instance.id}`, messageRaw.key.remoteJid, mediaType, fileName);
-
-              await s3Service.uploadFile(fullName, buffer, size, {
-                'Content-Type': mimetype,
-              });
-
-              const mediaUrl = await s3Service.getObjectUrl(fullName);
-
-              messageRaw.message.mediaUrl = mediaUrl;
+            if (messageRaw.messageType === 'documentMessage') {
+              mediaType = 'document';
+              mimetype = !mimetype ? 'application/pdf' : mimetype;
+            } else if (messageRaw.messageType === 'imageMessage') {
+              mediaType = 'image';
+              mimetype = !mimetype ? 'image/png' : mimetype;
+            } else if (messageRaw.messageType === 'audioMessage') {
+              mediaType = 'audio';
+              mimetype = !mimetype ? 'audio/mp4' : mimetype;
+            } else if (messageRaw.messageType === 'videoMessage') {
+              mediaType = 'video';
+              mimetype = !mimetype ? 'video/mp4' : mimetype;
             }
-          } catch (error) {
-            this.logger.error(['Error on upload file to minio', error?.message, error?.stack]);
+
+            const fileName = `${messageRaw.key.id}.${mimetype.split('/')[1]}`;
+
+            const size = buffer.byteLength;
+
+            const fullName = join(`${this.instance.id}`, messageRaw.key.remoteJid, mediaType, fileName);
+            if (await hasCompanyStorageCapacity(this.prismaRepository, this.instanceId, size)) {
+              const storageTarget = await getCompanyStorageTarget(this.prismaRepository, this.instanceId);
+              const uploadResult = await s3Service.uploadFile(
+                fullName,
+                buffer,
+                size,
+                {
+                  'Content-Type': mimetype,
+                },
+                storageTarget,
+              );
+              if (uploadResult instanceof Error) throw uploadResult;
+              messageRaw.message.mediaUrl = await s3Service.getObjectUrl(fullName, undefined, storageTarget);
+              mediaRecord = {
+                fileName: fullName,
+                type: mediaType,
+                mimetype,
+                sizeBytes: size,
+                storageBackend: storageTarget.backend,
+                storageBucket: storageTarget.bucket,
+              };
+            } else {
+              this.logger.warn(`Company storage quota reached; skipping media ${messageRaw.key.id}`);
+            }
           }
+        } catch (error) {
+          this.logger.error(['Error on upload file', error?.message, error?.stack]);
         }
       }
 
@@ -524,9 +549,18 @@ export class EvolutionStartupService extends ChannelStartupService {
           pushName: messageRaw.pushName,
         });
 
-      await this.prismaRepository.message.create({
+      const createdMessage = await this.prismaRepository.message.create({
         data: messageRaw,
       });
+      if (mediaRecord) {
+        await this.prismaRepository.media.create({
+          data: {
+            messageId: createdMessage.id,
+            instanceId: this.instanceId,
+            ...mediaRecord,
+          },
+        });
+      }
 
       return messageRaw;
     } catch (error) {

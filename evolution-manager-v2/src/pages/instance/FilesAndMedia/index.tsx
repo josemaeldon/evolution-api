@@ -26,7 +26,14 @@ type MediaPage = {
   fileCount: number;
 };
 
-type StorageInfo = { usedBytes: number; fileCount: number; storageQuotaMb: number; storageEnabled: boolean };
+type StorageInfo = {
+  usedBytes: number;
+  fileCount: number;
+  storageQuotaMb: number;
+  storageEnabled: boolean;
+  storageBackend: "local" | "minio";
+  storageBucket: string | null;
+};
 
 const formatSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -118,11 +125,9 @@ export default function FilesAndMedia() {
         <p className="text-sm text-muted-foreground">Gerencie os arquivos recebidos nas conversas de todas as instâncias da empresa.</p>
       </header>
 
-      {storage?.storageEnabled === false && <p className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">O armazenamento MinIO/S3 não está habilitado neste servidor.</p>}
-
       <section className="space-y-3 rounded-lg border p-4" aria-label="Cota de armazenamento">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span>Uso de armazenamento</span>
+          <span>Uso de armazenamento · {storage?.storageBackend === "minio" ? `MinIO/S3 · ${storage.storageBucket || "bucket não definido"}` : "Local"}</span>
           <span className="font-medium">{formatSize(usedBytes)} de {storage?.storageQuotaMb ?? 0} MB · {storage?.fileCount ?? data?.fileCount ?? 0} arquivos</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-muted">
