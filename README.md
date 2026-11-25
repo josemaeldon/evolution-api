@@ -74,7 +74,7 @@ Evolution API integrates natively with many platforms:
 ### Prerequisites
 
 - **Node.js** 20+
-- **PostgreSQL** or **MySQL**
+- **PostgreSQL**
 - **Redis** (recommended for caching)
 
 ### Installation
@@ -94,8 +94,8 @@ cp .env.example .env
 ### Database setup
 
 ```bash
-# Set the database provider
-export DATABASE_PROVIDER=postgresql  # or mysql
+# PostgreSQL is the only supported database provider
+export DATABASE_PROVIDER=postgresql
 
 # Generate Prisma client
 npm run db:generate
@@ -140,8 +140,8 @@ Evolution API
 
 Built with **Node.js 20+**, **TypeScript 5+**, and **Express.js**, it provides extensive integrations with chatbots, CRM systems, and messaging platforms.
 
-### Multi-database support
-PostgreSQL and MySQL via Prisma ORM with provider-specific schemas and migrations.
+### Database
+PostgreSQL via Prisma ORM. PgBouncer can be used with the PostgreSQL datasource schema.
 
 ### Authentication
 - API key-based authentication via `apikey` header

@@ -163,7 +163,9 @@ if (metricsConfig.ENABLED) {
   });
 }
 
-if (!serverConfig.DISABLE_MANAGER) router.use('/manager', new ViewsRouter().router);
+if (!serverConfig.DISABLE_MANAGER) {
+  router.use('/manager', new ViewsRouter().router);
+}
 
 router.get('/assets/*', (req, res) => {
   const fileName = req.params[0];
@@ -193,21 +195,28 @@ router.get('/assets/*', (req, res) => {
   }
 });
 
+const apiStatus = async (req: Request) => ({
+  status: HttpStatus.OK,
+  message: 'CloudBR Chat API is running',
+  version: packageJson.version,
+  clientName: databaseConfig.CONNECTION.CLIENT_NAME,
+  manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
+  documentation: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager/docs` : undefined,
+  websocketEnabled: configService.get<Websocket>('WEBSOCKET').ENABLED,
+  whatsappWebVersion: (await fetchLatestWaWebVersion({})).version.join('.'),
+});
+
 router
   .use((req, res, next) => telemetry.collectTelemetry(req, res, next))
 
   .get('/', async (req, res) => {
-    res.status(HttpStatus.OK).json({
-      status: HttpStatus.OK,
-      message: 'CloudBR Chat API is running',
-      version: packageJson.version,
-      clientName: databaseConfig.CONNECTION.CLIENT_NAME,
-      manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
-      documentation: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager/docs` : undefined,
-      websocketEnabled: configService.get<Websocket>('WEBSOCKET').ENABLED,
-      whatsappWebVersion: (await fetchLatestWaWebVersion({})).version.join('.'),
-    });
+    const managerIndex = path.join(process.cwd(), 'manager', 'dist', 'index.html');
+    if (!serverConfig.DISABLE_MANAGER && fs.existsSync(managerIndex)) {
+      return res.sendFile(managerIndex);
+    }
+    return res.status(HttpStatus.OK).json(await apiStatus(req));
   })
+  .get('/health', async (req, res) => res.status(HttpStatus.OK).json(await apiStatus(req)))
   .post('/verify-creds', authGuard['apikey'], async (req, res) => {
     const facebookConfig = configService.get<Facebook>('FACEBOOK');
     return res.status(HttpStatus.OK).json({

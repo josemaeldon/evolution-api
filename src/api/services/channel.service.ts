@@ -574,9 +574,8 @@ export class ChannelStartupService {
 
   public async deleteConversation(remoteJid: string) {
     const jid = this.contactJid(remoteJid);
-    const path = process.env.DATABASE_PROVIDER === 'mysql' ? '$.remoteJid' : ['remoteJid'];
     await this.prismaRepository.message.deleteMany({
-      where: { instanceId: this.instanceId, key: { path: path as never, equals: jid } },
+      where: { instanceId: this.instanceId, key: { path: ['remoteJid'], equals: jid } },
     });
     return { remoteJid: jid, deleted: true };
   }

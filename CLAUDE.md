@@ -36,7 +36,7 @@ npm run commit      # Interactive commit with commitizen
 ### Database Management
 ```bash
 # Set database provider first
-export DATABASE_PROVIDER=postgresql  # or mysql
+export DATABASE_PROVIDER=postgresql  # or psql_bouncer
 
 # Generate Prisma client (automatically uses DATABASE_PROVIDER env)
 npm run db:generate
@@ -66,7 +66,7 @@ npm test    # Run tests with watch mode
 
 ### Core Structure
 - **Multi-tenant SaaS**: Complete instance isolation with per-tenant authentication
-- **Multi-provider database**: PostgreSQL and MySQL via Prisma ORM with provider-specific schemas and migrations
+- **Database**: PostgreSQL via Prisma ORM; PgBouncer can use the PostgreSQL bouncer schema
 - **WhatsApp integrations**: Baileys, Meta Business API, and Evolution API with unified interface
 - **Event-driven architecture**: EventEmitter2 for internal events + WebSocket, RabbitMQ, SQS, NATS, Pusher for external events
 - **Microservices pattern**: Modular integrations for chatbots, storage, and external services
@@ -125,9 +125,9 @@ src/
 - Media file management and URL generation
 
 ### Database Schema Management
-- Separate schema files: `postgresql-schema.prisma` and `mysql-schema.prisma`
-- Environment variable `DATABASE_PROVIDER` determines active database
-- Migration folders are provider-specific and auto-selected during deployment
+- PostgreSQL schema files: `postgresql-schema.prisma` and `psql_bouncer-schema.prisma`
+- Environment variable `DATABASE_PROVIDER` selects PostgreSQL or PgBouncer mode
+- Migrations are stored in `prisma/postgresql-migrations/`
 
 ### Authentication & Security
 - **API key-based authentication** via `apikey` header (global or per-instance)
@@ -166,7 +166,7 @@ src/
 Key environment variables are defined in `.env.example`. The system uses a strongly-typed configuration system via `src/config/env.config.ts`.
 
 Critical configurations:
-- `DATABASE_PROVIDER`: postgresql or mysql
+- `DATABASE_PROVIDER`: postgresql or psql_bouncer
 - `DATABASE_CONNECTION_URI`: Database connection string
 - `AUTHENTICATION_API_KEY`: Global API authentication
 - `REDIS_ENABLED`: Enable Redis cache
@@ -180,7 +180,7 @@ The project follows comprehensive development standards defined in `.cursor/rule
 - **Always respond in Portuguese (PT-BR)** for user communication
 - **Follow established architecture patterns** (Service Layer, RouterBroker, etc.)
 - **Robust error handling** with retry logic and graceful degradation
-- **Multi-database compatibility** (PostgreSQL and MySQL)
+- **PostgreSQL compatibility**
 - **Security-first approach** with input validation and rate limiting
 - **Performance optimizations** with Redis caching and connection pooling
 

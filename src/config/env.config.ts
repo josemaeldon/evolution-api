@@ -50,11 +50,11 @@ export type SaveData = {
 
 export type DBConnection = {
   URI: string;
+  BOUNCER_URI: string;
   CLIENT_NAME: string;
 };
 export type Database = {
   CONNECTION: DBConnection;
-  PROVIDER: string;
   SAVE_DATA: SaveData;
   DELETE_DATA: DeleteData;
 };
@@ -483,9 +483,9 @@ export class ConfigService {
       DATABASE: {
         CONNECTION: {
           URI: process.env.DATABASE_CONNECTION_URI || '',
+          BOUNCER_URI: process.env.DATABASE_BOUNCER_CONNECTION_URI || process.env.DATABASE_CONNECTION_URI || '',
           CLIENT_NAME: process.env.DATABASE_CONNECTION_CLIENT_NAME || 'evolution',
         },
-        PROVIDER: process.env.DATABASE_PROVIDER || 'postgresql',
         SAVE_DATA: {
           INSTANCE: process.env?.DATABASE_SAVE_DATA_INSTANCE === 'true',
           NEW_MESSAGE: process.env?.DATABASE_SAVE_DATA_NEW_MESSAGE === 'true',

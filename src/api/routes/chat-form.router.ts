@@ -117,7 +117,9 @@ export class ChatFormRouter {
       const answers = parseAnswers(invite.form.fields as FormField[], req.body?.answers);
       if (!answers) return res.status(400).json(error('Confira os campos do formulário'));
       try {
-        await prismaRepository.chatFormSubmission.create({ data: { inviteId: invite.id, answers } });
+        await prismaRepository.chatFormSubmission.create({
+          data: { inviteId: invite.id, fields: invite.form.fields, answers },
+        });
       } catch (cause: any) {
         if (cause?.code === 'P2002') return res.status(409).json(error('Este formulário já foi respondido'));
         throw cause;
@@ -156,6 +158,43 @@ export class ChatFormRouter {
       return res.status(201).json(form);
     });
 
+    this.router.put('/:instanceName/:formId', authGuard.apikey, async (req, res) => {
+      const instance = await prismaRepository.instance.findUnique({
+        where: { name: req.params.instanceName },
+        select: { id: true },
+      });
+      if (!instance) return res.status(404).json(error('Instância não encontrada'));
+      const form = await prismaRepository.chatForm.findFirst({
+        where: { id: req.params.formId, instanceId: instance.id },
+      });
+      if (!form) return res.status(404).json(error('Formulário não encontrado'));
+      const title = String(req.body?.title || '').trim();
+      const description = String(req.body?.description || '').trim();
+      const fields = parseFields(req.body?.fields);
+      if (!title || title.length > 120 || description.length > 1000 || !fields)
+        return res.status(400).json(error('Informe título e campos válidos'));
+      const updated = await prismaRepository.chatForm.update({
+        where: { id: form.id },
+        data: { title, description: description || null, fields },
+      });
+      return res.json(updated);
+    });
+
+    this.router.delete('/:instanceName/:formId', authGuard.apikey, async (req, res) => {
+      const instance = await prismaRepository.instance.findUnique({
+        where: { name: req.params.instanceName },
+        select: { id: true },
+      });
+      if (!instance) return res.status(404).json(error('Instância não encontrada'));
+      const form = await prismaRepository.chatForm.findFirst({
+        where: { id: req.params.formId, instanceId: instance.id },
+        select: { id: true },
+      });
+      if (!form) return res.status(404).json(error('Formulário não encontrado'));
+      await prismaRepository.chatForm.delete({ where: { id: form.id } });
+      return res.status(204).send();
+    });
+
     this.router.get('/:instanceName/:formId/submissions', authGuard.apikey, async (req, res) => {
       const instance = await prismaRepository.instance.findUnique({
         where: { name: req.params.instanceName },
@@ -187,6 +226,7 @@ export class ChatFormRouter {
           remoteJid: invite.remoteJid,
           contactName: names.get(invite.remoteJid) || invite.remoteJid.split('@')[0],
           answers: invite.submission!.answers,
+          fields: invite.submission!.fields,
           createdAt: invite.submission!.createdAt,
         })),
         hasMore: invites.length > 50,
@@ -207,7 +247,7 @@ export class ChatFormRouter {
         include: { invite: { include: { form: true } } },
       });
       if (!submission) return res.status(404).json(error('Resposta não encontrada'));
-      const answers = parseAnswers(submission.invite.form.fields as FormField[], req.body?.answers);
+      const answers = parseAnswers(submission.fields as FormField[], req.body?.answers);
       if (!answers) return res.status(400).json(error('Confira os campos da resposta'));
       const updated = await prismaRepository.chatFormSubmission.update({
         where: { id: submission.id },

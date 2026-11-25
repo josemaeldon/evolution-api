@@ -21,5 +21,6 @@ export type FormSubmission = {
   remoteJid: string;
   contactName: string;
   answers: Record<string, string | boolean>;
+  fields: FormField[];
   createdAt: string;
 };

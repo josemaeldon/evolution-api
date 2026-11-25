@@ -10,7 +10,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_CONNECTION_URI")
 }
 
 enum InstanceConnectionStatus {
@@ -197,6 +196,7 @@ model ChatFormInvite {
 model ChatFormSubmission {
   id         String         @id @default(cuid())
   inviteId   String         @unique
+  fields     Json           @db.JsonB
   answers    Json           @db.JsonB
   createdAt  DateTime       @default(now())
   invite     ChatFormInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)

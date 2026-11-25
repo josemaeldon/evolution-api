@@ -30,6 +30,7 @@ export default function ChatForms() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editingFormId, setEditingFormId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -50,6 +51,35 @@ export default function ChatForms() {
     enabled: !!instance?.name && !!selectedId,
   });
   const submissions = submissionPage?.items || [];
+
+  const startCreate = () => {
+    setEditingFormId(null);
+    setTitle("");
+    setDescription("");
+    setFields([newField()]);
+    setCreating(true);
+  };
+
+  const startEdit = (form: ChatForm) => {
+    setEditingFormId(form.id);
+    setTitle(form.title);
+    setDescription(form.description || "");
+    setFields(form.fields.map((field) => ({ ...field, options: field.options ? [...field.options] : undefined })));
+    setCreating(true);
+  };
+
+  const deleteForm = async (form: ChatForm) => {
+    if (!instance || !window.confirm(`Excluir o formulário “${form.title}” e os links e respostas associados?`)) return;
+    try {
+      await api.delete(`/forms/${instance.name}/${form.id}`);
+      await queryClient.invalidateQueries({ queryKey: ["chatForms", instance.name] });
+      await queryClient.removeQueries({ queryKey: ["chatFormSubmissions", instance.name, form.id] });
+      if (selectedId === form.id) setSelectedId(null);
+      toast.success("Formulário excluído");
+    } catch (cause: any) {
+      toast.error(cause?.response?.data?.error || "Não foi possível excluir o formulário");
+    }
+  };
 
   const saveSubmission = async (submissionId: string) => {
     if (!instance || !selected || savingSubmission) return;
@@ -92,7 +122,9 @@ export default function ChatForms() {
     }
     setSaving(true);
     try {
-      const response = await api.post<ChatForm>(`/forms/${instance.name}`, { title: title.trim(), description: description.trim(), fields: clean });
+      const response = editingFormId
+        ? await api.put<ChatForm>(`/forms/${instance.name}/${editingFormId}`, { title: title.trim(), description: description.trim(), fields: clean })
+        : await api.post<ChatForm>(`/forms/${instance.name}`, { title: title.trim(), description: description.trim(), fields: clean });
       await queryClient.invalidateQueries({ queryKey: ["chatForms", instance.name] });
       setSelectedId(response.data.id);
       setPage(0);
@@ -100,7 +132,8 @@ export default function ChatForms() {
       setTitle("");
       setDescription("");
       setFields([newField()]);
-      toast.success("Formulário criado");
+      setEditingFormId(null);
+      toast.success(editingFormId ? "Formulário atualizado" : "Formulário criado");
     } catch (cause: any) {
       toast.error(cause?.response?.data?.error || "Não foi possível criar o formulário");
     } finally {
@@ -115,7 +148,7 @@ export default function ChatForms() {
           <h1 className="text-2xl font-semibold">Formulários</h1>
           <p className="mt-1 text-sm text-muted-foreground">Crie formulários e acompanhe as respostas recebidas dos contatos.</p>
         </div>
-        <Button onClick={() => setCreating(true)}>
+        <Button onClick={startCreate}>
           <Plus className="mr-2 h-4 w-4" /> Criar formulário
         </Button>
       </div>
@@ -152,8 +185,16 @@ export default function ChatForms() {
           )}
           {selected && (
             <>
-              <h2 className="text-xl font-semibold">{selected.title}</h2>
-              {selected.description && <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p>}
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold">{selected.title}</h2>
+                  {selected.description && <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p>}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => startEdit(selected)}><Pencil className="mr-1 h-4 w-4" /> Editar</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => deleteForm(selected)}><Trash2 className="mr-1 h-4 w-4" /> Excluir</Button>
+                </div>
+              </div>
               <div className="mt-5 border-t pt-5">
                 <h3 className="font-medium">Respostas por contato</h3>
                 {loadingSubmissions && <p className="mt-3 text-sm text-muted-foreground">Carregando respostas...</p>}
@@ -167,7 +208,7 @@ export default function ChatForms() {
                       </div>
                       <p className="text-xs text-muted-foreground">{submission.remoteJid.split("@")[0]}</p>
                       <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {selected.fields.map((field) => (
+                        {submission.fields.map((field) => (
                           <div key={field.id} className="min-w-0">
                             <dt className="text-xs text-muted-foreground">{field.label}</dt>
                             {editingSubmissionId === submission.id ? (
@@ -227,11 +268,11 @@ export default function ChatForms() {
         </section>
       </div>
 
-      <Dialog open={creating} onOpenChange={setCreating}>
+      <Dialog open={creating} onOpenChange={(open) => { setCreating(open); if (!open) setEditingFormId(null); }}>
         <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Criar formulário</DialogTitle>
-            <DialogDescription>Defina as perguntas que o contato deverá responder.</DialogDescription>
+            <DialogTitle>{editingFormId ? "Editar formulário" : "Criar formulário"}</DialogTitle>
+            <DialogDescription>{editingFormId ? "Atualize as informações e os campos do formulário." : "Defina as perguntas que o contato deverá responder."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Input aria-label="Título do formulário" placeholder="Título do formulário" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -288,7 +329,7 @@ export default function ChatForms() {
                 <Plus className="mr-2 h-4 w-4" /> Adicionar campo
               </Button>
               <Button type="button" disabled={saving} onClick={save}>
-                {saving ? "Salvando..." : "Salvar formulário"}
+                {saving ? "Salvando..." : editingFormId ? "Salvar alterações" : "Salvar formulário"}
               </Button>
             </div>
           </div>

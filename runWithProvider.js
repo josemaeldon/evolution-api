@@ -7,22 +7,16 @@ dotenv.config();
 const { DATABASE_PROVIDER } = process.env;
 const databaseProviderDefault = DATABASE_PROVIDER ?? 'postgresql';
 
+if (!['postgresql', 'psql_bouncer'].includes(databaseProviderDefault)) {
+  console.error(`Unsupported database provider: ${databaseProviderDefault}. Use postgresql or psql_bouncer.`);
+  process.exit(1);
+}
+
 if (!DATABASE_PROVIDER) {
   console.warn(`DATABASE_PROVIDER is not set in the .env file, using default: ${databaseProviderDefault}`);
 }
 
-// Função para determinar qual pasta de migrations usar
-// Função para determinar qual pasta de migrations usar
-function getMigrationsFolder(provider) {
-  switch (provider) {
-    case 'psql_bouncer':
-      return 'postgresql-migrations'; // psql_bouncer usa as migrations do postgresql
-    default:
-      return `${provider}-migrations`;
-  }
-}
-
-const migrationsFolder = getMigrationsFolder(databaseProviderDefault);
+const migrationsFolder = 'postgresql-migrations';
 
 let command = process.argv
   .slice(2)

@@ -23,8 +23,8 @@ This document provides comprehensive guidelines for AI agents (Claude, GPT, Curs
   - `types/` – TypeScript type definitions
   - `repository/` – Data access layer (Prisma)
 - **`prisma/`** – Database schemas and migrations
-  - `postgresql-schema.prisma` / `mysql-schema.prisma` – Provider-specific schemas
-  - `postgresql-migrations/` / `mysql-migrations/` – Provider-specific migrations
+  - `postgresql-schema.prisma` / `psql_bouncer-schema.prisma` – PostgreSQL schemas
+  - `postgresql-migrations/` – PostgreSQL migrations
 - **`config/`** – Environment and application configuration
 - **`utils/`** – Shared utilities and helper functions
 - **`validate/`** – JSONSchema7 validation schemas
@@ -64,7 +64,7 @@ npm run commit      # Interactive commit with Commitizen
 ### Database Management
 ```bash
 # Set database provider first (CRITICAL)
-export DATABASE_PROVIDER=postgresql  # or mysql
+export DATABASE_PROVIDER=postgresql  # or psql_bouncer
 
 # Generate Prisma client
 npm run db:generate
@@ -211,11 +211,10 @@ if (!waInstance) {
 
 ## Database Patterns
 
-### Multi-Provider Support
+### PostgreSQL Support
 - **PostgreSQL**: Uses `@db.Integer`, `@db.JsonB`, `@default(now())`
-- **MySQL**: Uses `@db.Int`, `@db.Json`, `@default(now())`
-- **Environment**: Set `DATABASE_PROVIDER=postgresql` or `mysql`
-- **Migrations**: Provider-specific folders auto-selected
+- **Environment**: Set `DATABASE_PROVIDER=postgresql`; `psql_bouncer` is also supported for PgBouncer connections
+- **Migrations**: `prisma/postgresql-migrations/`
 
 ### Prisma Repository Pattern
 ```typescript
@@ -304,7 +303,7 @@ cp .env.example .env
 
 # NEVER commit secrets to version control
 # Set DATABASE_PROVIDER before database commands
-export DATABASE_PROVIDER=postgresql  # or mysql
+export DATABASE_PROVIDER=postgresql  # or psql_bouncer
 ```
 
 ### Security Best Practices

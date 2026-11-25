@@ -5,7 +5,7 @@ O manager usa a chave global da API para entrar como superadministrador. Empresa
 ## Implantação
 
 1. Faça backup do banco.
-2. Configure `DATABASE_PROVIDER` como `postgresql`, `mysql` ou `psql_bouncer`.
+2. Configure `DATABASE_PROVIDER=postgresql` (ou `psql_bouncer` ao usar PgBouncer).
 3. Execute `npm run db:deploy` e `npm run db:generate`.
 4. Compile a API e o manager com `npm run build` em cada projeto.
 5. Entre no manager com a chave global, selecione **Superadministrador** e abra **Empresas e usuários**.
