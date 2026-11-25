@@ -1,11 +1,12 @@
 import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Trash2 } from "lucide-react";
+import { ClipboardList, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { useInstance } from "@/contexts/InstanceContext";
 import { api } from "@/lib/queries/api";
@@ -17,6 +18,7 @@ const fieldTypes: { value: FormFieldType; label: string }[] = [
   { value: "email", label: "E-mail" },
   { value: "phone", label: "Telefone" },
   { value: "number", label: "Número" },
+  { value: "date", label: "Data" },
   { value: "select", label: "Escolha única" },
   { value: "checkbox", label: "Confirmação" },
 ];
@@ -33,6 +35,9 @@ export default function ChatForms() {
   const [description, setDescription] = useState("");
   const [fields, setFields] = useState<FormField[]>(() => [newField()]);
   const [page, setPage] = useState(0);
+  const [editingSubmissionId, setEditingSubmissionId] = useState<string | null>(null);
+  const [editingAnswers, setEditingAnswers] = useState<Record<string, string | boolean>>({});
+  const [savingSubmission, setSavingSubmission] = useState(false);
   const { data: forms = [], isLoading } = useQuery<ChatForm[]>({
     queryKey: ["chatForms", instance?.name],
     queryFn: async () => (await api.get(`/forms/${instance?.name}`)).data,
@@ -45,6 +50,32 @@ export default function ChatForms() {
     enabled: !!instance?.name && !!selectedId,
   });
   const submissions = submissionPage?.items || [];
+
+  const saveSubmission = async (submissionId: string) => {
+    if (!instance || !selected || savingSubmission) return;
+    setSavingSubmission(true);
+    try {
+      await api.put(`/forms/${instance.name}/${selected.id}/submissions/${submissionId}`, { answers: editingAnswers });
+      await queryClient.invalidateQueries({ queryKey: ["chatFormSubmissions", instance.name, selected.id] });
+      setEditingSubmissionId(null);
+      toast.success("Resposta atualizada");
+    } catch (cause: any) {
+      toast.error(cause?.response?.data?.error || "Não foi possível atualizar a resposta");
+    } finally {
+      setSavingSubmission(false);
+    }
+  };
+
+  const deleteSubmission = async (submissionId: string) => {
+    if (!instance || !selected || !window.confirm("Excluir esta resposta do formulário?")) return;
+    try {
+      await api.delete(`/forms/${instance.name}/${selected.id}/submissions/${submissionId}`);
+      await queryClient.invalidateQueries({ queryKey: ["chatFormSubmissions", instance.name, selected.id] });
+      toast.success("Resposta excluída");
+    } catch (cause: any) {
+      toast.error(cause?.response?.data?.error || "Não foi possível excluir a resposta");
+    }
+  };
 
   const updateField = (id: string, update: Partial<FormField>) => setFields((current) => current.map((field) => (field.id === id ? { ...field, ...update } : field)));
 
@@ -139,12 +170,43 @@ export default function ChatForms() {
                         {selected.fields.map((field) => (
                           <div key={field.id} className="min-w-0">
                             <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                            <dd className="break-words text-sm">
-                              {submission.answers[field.id] === true ? "Sim" : submission.answers[field.id] === false ? "Não" : submission.answers[field.id] || "—"}
-                            </dd>
+                            {editingSubmissionId === submission.id ? (
+                              field.type === "checkbox" ? (
+                                <label className="mt-1 flex items-center gap-2 text-sm">
+                                  <input type="checkbox" checked={editingAnswers[field.id] === true} onChange={(event) => setEditingAnswers((current) => ({ ...current, [field.id]: event.target.checked }))} /> Sim
+                                </label>
+                              ) : field.type === "date" ? (
+                                <div className="mt-1"><DatePicker value={String(editingAnswers[field.id] || "")} onChange={(value) => setEditingAnswers((current) => ({ ...current, [field.id]: value }))} required={field.required} /></div>
+                              ) : field.type === "textarea" ? (
+                                <Textarea className="mt-1" value={String(editingAnswers[field.id] || "")} onChange={(event) => setEditingAnswers((current) => ({ ...current, [field.id]: event.target.value }))} />
+                              ) : field.type === "select" ? (
+                                <select className="mt-1 h-10 w-full rounded-md border bg-background px-3 text-sm" value={String(editingAnswers[field.id] || "")} onChange={(event) => setEditingAnswers((current) => ({ ...current, [field.id]: event.target.value }))}>
+                                  <option value="">Selecione</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
+                                </select>
+                              ) : (
+                                <Input className="mt-1" type={field.type === "phone" ? "tel" : field.type === "number" ? "number" : field.type === "email" ? "email" : "text"} value={String(editingAnswers[field.id] || "")} onChange={(event) => setEditingAnswers((current) => ({ ...current, [field.id]: event.target.value }))} />
+                              )
+                            ) : (
+                              <dd className="break-words text-sm">
+                                {submission.answers[field.id] === true ? "Sim" : submission.answers[field.id] === false ? "Não" : submission.answers[field.id] || "—"}
+                              </dd>
+                            )}
                           </div>
                         ))}
                       </dl>
+                      <div className="mt-3 flex justify-end gap-2">
+                        {editingSubmissionId === submission.id ? (
+                          <>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setEditingSubmissionId(null)}><X className="mr-1 h-4 w-4" /> Cancelar</Button>
+                            <Button type="button" size="sm" disabled={savingSubmission} onClick={() => saveSubmission(submission.id)}><Save className="mr-1 h-4 w-4" /> Salvar</Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button type="button" variant="outline" size="sm" onClick={() => { setEditingSubmissionId(submission.id); setEditingAnswers({ ...submission.answers }); }}><Pencil className="mr-1 h-4 w-4" /> Editar</Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => deleteSubmission(submission.id)}><Trash2 className="mr-1 h-4 w-4" /> Excluir</Button>
+                          </>
+                        )}
+                      </div>
                     </article>
                   ))}
                 </div>

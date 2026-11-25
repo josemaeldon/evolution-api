@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 
 import { Button } from "@evoapi/design-system/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { useTheme } from "@/components/theme-provider";
 import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
@@ -39,6 +40,11 @@ export default function PublicChatForm() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!inviteId || sending) return;
+    const missingDate = form?.fields.find((field) => field.type === "date" && field.required && !String(answers[field.id] || ""));
+    if (missingDate) {
+      setError(`Selecione uma data para “${missingDate.label}”.`);
+      return;
+    }
     setSending(true);
     setError("");
     try {
@@ -81,7 +87,14 @@ export default function PublicChatForm() {
                           </span>
                         )}
                       </label>
-                      {field.type === "textarea" ? (
+                      {field.type === "date" ? (
+                        <DatePicker
+                          id={field.id}
+                          required={field.required}
+                          value={String(answers[field.id] || "")}
+                          onChange={(value) => setAnswers((current) => ({ ...current, [field.id]: value }))}
+                        />
+                      ) : field.type === "textarea" ? (
                         <Textarea
                           id={field.id}
                           required={field.required}

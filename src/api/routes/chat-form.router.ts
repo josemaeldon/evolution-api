@@ -4,10 +4,10 @@ import { configService } from '@config/env.config';
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 
-type FieldType = 'text' | 'textarea' | 'email' | 'phone' | 'number' | 'select' | 'checkbox';
+type FieldType = 'text' | 'textarea' | 'email' | 'phone' | 'number' | 'date' | 'select' | 'checkbox';
 type FormField = { id: string; label: string; type: FieldType; required: boolean; options?: string[] };
 
-const fieldTypes = new Set<FieldType>(['text', 'textarea', 'email', 'phone', 'number', 'select', 'checkbox']);
+const fieldTypes = new Set<FieldType>(['text', 'textarea', 'email', 'phone', 'number', 'date', 'select', 'checkbox']);
 const validInviteId = (value: string) => /^[A-Za-z0-9_-]{32}$/.test(value);
 const error = (message: string) => ({ error: message });
 
@@ -71,10 +71,19 @@ function parseAnswers(fields: FormField[], value: unknown): Record<string, strin
     if (field.type === 'email' && text && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return null;
     if (field.type === 'phone' && text && !/^\+?[\d\s().-]{8,30}$/.test(text)) return null;
     if (field.type === 'number' && text && !Number.isFinite(Number(text))) return null;
+    if (field.type === 'date' && text && !isValidBrazilianDate(text)) return null;
     if (field.type === 'select' && text && !field.options?.includes(text)) return null;
     answers[field.id] = text;
   }
   return answers;
+}
+
+function isValidBrazilianDate(value: string): boolean {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) return false;
+  const [, day, month, year] = match.map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 }
 
 export class ChatFormRouter {
@@ -182,6 +191,47 @@ export class ChatFormRouter {
         })),
         hasMore: invites.length > 50,
       });
+    });
+
+    this.router.put('/:instanceName/:formId/submissions/:submissionId', authGuard.apikey, async (req, res) => {
+      const instance = await prismaRepository.instance.findUnique({
+        where: { name: req.params.instanceName },
+        select: { id: true },
+      });
+      if (!instance) return res.status(404).json(error('Instância não encontrada'));
+      const submission = await prismaRepository.chatFormSubmission.findFirst({
+        where: {
+          id: req.params.submissionId,
+          invite: { form: { id: req.params.formId, instanceId: instance.id } },
+        },
+        include: { invite: { include: { form: true } } },
+      });
+      if (!submission) return res.status(404).json(error('Resposta não encontrada'));
+      const answers = parseAnswers(submission.invite.form.fields as FormField[], req.body?.answers);
+      if (!answers) return res.status(400).json(error('Confira os campos da resposta'));
+      const updated = await prismaRepository.chatFormSubmission.update({
+        where: { id: submission.id },
+        data: { answers },
+      });
+      return res.json(updated);
+    });
+
+    this.router.delete('/:instanceName/:formId/submissions/:submissionId', authGuard.apikey, async (req, res) => {
+      const instance = await prismaRepository.instance.findUnique({
+        where: { name: req.params.instanceName },
+        select: { id: true },
+      });
+      if (!instance) return res.status(404).json(error('Instância não encontrada'));
+      const submission = await prismaRepository.chatFormSubmission.findFirst({
+        where: {
+          id: req.params.submissionId,
+          invite: { form: { id: req.params.formId, instanceId: instance.id } },
+        },
+        select: { id: true },
+      });
+      if (!submission) return res.status(404).json(error('Resposta não encontrada'));
+      await prismaRepository.chatFormSubmission.delete({ where: { id: submission.id } });
+      return res.status(204).send();
     });
 
     this.router.post('/:instanceName/:formId/invite', authGuard.apikey, async (req, res) => {
