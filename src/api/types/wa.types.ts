@@ -146,6 +146,7 @@ export const TypeMediaMessage = [
 ];
 
 export const MessageSubtype = [
+  'associatedChildMessage',
   'ephemeralMessage',
   'documentWithCaptionMessage',
   'viewOnceMessage',

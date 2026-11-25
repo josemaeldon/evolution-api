@@ -14,7 +14,7 @@ import { Logger } from '@config/logger.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 import { Contact, Message, Prisma } from '@prisma/client';
 import { createJid } from '@utils/createJid';
-import { WASocket } from 'baileys';
+import { normalizeMessageContent, WASocket } from 'baileys';
 import { isArray } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
 import { v4 } from 'uuid';
@@ -871,7 +871,7 @@ export class ChannelStartupService {
   public hasValidMediaContent(message: any): boolean {
     if (!message?.message) return false;
 
-    const msg = message.message;
+    const msg = normalizeMessageContent(message.message) || message.message;
 
     // Se só tem messageContextInfo, não é mídia válida
     if (Object.keys(msg).length === 1 && Object.prototype.hasOwnProperty.call(msg, 'messageContextInfo')) {

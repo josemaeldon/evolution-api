@@ -123,6 +123,7 @@ import makeWASocket, {
   MessageUpsertType,
   MessageUserReceiptUpdate,
   MiscMessageGenerationOptions,
+  normalizeMessageContent,
   ParticipantAction,
   prepareWAMessageMedia,
   Product,
@@ -1327,16 +1328,17 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
+          const normalizedReceivedContent = normalizeMessageContent(received?.message);
           const isMedia =
-            received?.message?.imageMessage ||
-            received?.message?.videoMessage ||
-            received?.message?.stickerMessage ||
-            received?.message?.documentMessage ||
-            received?.message?.documentWithCaptionMessage ||
-            received?.message?.ptvMessage ||
-            received?.message?.audioMessage;
+            normalizedReceivedContent?.imageMessage ||
+            normalizedReceivedContent?.videoMessage ||
+            normalizedReceivedContent?.stickerMessage ||
+            normalizedReceivedContent?.documentMessage ||
+            normalizedReceivedContent?.documentWithCaptionMessage ||
+            normalizedReceivedContent?.ptvMessage ||
+            normalizedReceivedContent?.audioMessage;
 
-          const isVideo = received?.message?.videoMessage;
+          const isVideo = normalizedReceivedContent?.videoMessage;
 
           if (this.localSettings.readMessages && received.key.id !== 'status@broadcast') {
             await this.client.readMessages([received.key]);
@@ -1415,7 +1417,7 @@ export class BaileysStartupService extends ChannelStartupService {
                   return;
                 }
 
-                const message: any = received;
+                const message: any = { ...received, message: normalizedReceivedContent };
 
                 // Verificação adicional para garantir que há conteúdo de mídia real
                 const hasRealMedia = this.hasValidMediaContent(message);
@@ -2506,17 +2508,17 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const messageRaw = this.prepareMessage(messageSent);
 
+      const normalizedSentContent = normalizeMessageContent(messageSent?.message);
       const isMedia =
-        messageSent?.message?.imageMessage ||
-        messageSent?.message?.videoMessage ||
-        messageSent?.message?.stickerMessage ||
-        messageSent?.message?.ptvMessage ||
-        messageSent?.message?.documentMessage ||
-        messageSent?.message?.documentWithCaptionMessage ||
-        messageSent?.message?.ptvMessage ||
-        messageSent?.message?.audioMessage;
+        normalizedSentContent?.imageMessage ||
+        normalizedSentContent?.videoMessage ||
+        normalizedSentContent?.stickerMessage ||
+        normalizedSentContent?.ptvMessage ||
+        normalizedSentContent?.documentMessage ||
+        normalizedSentContent?.documentWithCaptionMessage ||
+        normalizedSentContent?.audioMessage;
 
-      const isVideo = messageSent?.message?.videoMessage;
+      const isVideo = normalizedSentContent?.videoMessage;
 
       if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled && !isIntegration) {
         this.chatwootService.eventWhatsapp(
@@ -2546,7 +2548,7 @@ export class BaileysStartupService extends ChannelStartupService {
               throw new Error('Video upload is disabled.');
             }
 
-            const message: any = messageRaw;
+            const message: any = { ...messageRaw, message: normalizedSentContent };
 
             // Verificação adicional para garantir que há conteúdo de mídia real
             const hasRealMedia = this.hasValidMediaContent(message);

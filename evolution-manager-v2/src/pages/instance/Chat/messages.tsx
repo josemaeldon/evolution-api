@@ -171,6 +171,39 @@ const messageContent = (message: Message): Record<string, any> => {
   }
 };
 
+const normalizeMessageForDisplay = (message: Message): Message => {
+  let content = messageContent(message);
+
+  // WhatsApp may wrap paired media in associatedChildMessage. Unwrap it along
+  // with other future-proof wrappers before deciding how the chat should render it.
+  for (let depth = 0; depth < 10; depth++) {
+    const nested =
+      content.associatedChildMessage?.message ||
+      content.ephemeralMessage?.message ||
+      content.viewOnceMessage?.message ||
+      content.viewOnceMessageV2?.message ||
+      content.viewOnceMessageV2Extension?.message ||
+      content.documentWithCaptionMessage?.message ||
+      content.deviceSentMessage?.message ||
+      content.editedMessage?.message ||
+      content.groupStatusMessage?.message ||
+      content.groupStatusMessageV2?.message;
+
+    if (!nested || typeof nested !== "object") break;
+    content = nested;
+  }
+
+  const contentType = Object.keys(content).find(
+    (key) => key === "conversation" || (key.endsWith("Message") && key !== "messageContextInfo"),
+  );
+
+  return {
+    ...message,
+    message: content,
+    messageType: contentType || message.messageType,
+  };
+};
+
 const copyableMessageText = (message: Message): string => {
   const content = messageContent(message);
   const nested = content.viewOnceMessage?.message || content.viewOnceMessageV2?.message || content.ephemeralMessage?.message || content;
@@ -225,6 +258,7 @@ const QuotedContent = ({ message }: { message: Message }) => {
 
 // Component to render different message types based on messageType
 const MessageContent = ({ message, instanceName, token }: { message: Message; instanceName?: string; token?: string }) => {
+  message = normalizeMessageForDisplay(message);
   const messageType = message.messageType as string;
 
   switch (messageType) {
@@ -349,6 +383,7 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 };
 
 const DeferredMessageContent = ({ message, instanceName, token }: { message: Message; instanceName?: string; token?: string }) => {
+  message = normalizeMessageForDisplay(message);
   const mediaTypes = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "documentWithCaptionMessage", "stickerMessage"];
   const isMedia = mediaTypes.includes(message.messageType);
   const containerRef = useRef<HTMLDivElement>(null);
