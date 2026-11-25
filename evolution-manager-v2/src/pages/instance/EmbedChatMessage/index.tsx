@@ -214,7 +214,7 @@ function EmbedChatMessage() {
 
   useEffect(() => {
     if (remoteJid) {
-      const currentChat = chats.find((chat) => chat.id === remoteJid);
+      const currentChat = chats.find((chat) => chat.remoteJid === remoteJid);
       setSelectedChat(currentChat || null);
     }
   }, [remoteJid, chats]);

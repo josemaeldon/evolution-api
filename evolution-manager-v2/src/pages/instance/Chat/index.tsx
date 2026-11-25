@@ -1,15 +1,20 @@
 import "./style.css";
 import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avatar";
 import { Button } from "@evoapi/design-system/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, MessageCircle, Search, User, Users } from "lucide-react";
+import { ArrowLeft, ContactRound, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import { useInstance } from "@/contexts/InstanceContext";
 
 import { useFindChats } from "@/lib/queries/chat/findChats";
+import { api } from "@/lib/queries/api";
 import { getToken, TOKEN_ID } from "@/lib/queries/token";
 import { cn } from "@/lib/utils";
 
@@ -24,9 +29,12 @@ import { Messages } from "./messages";
 const formatJid = (remoteJid: string): string => remoteJid.split("@")[0];
 
 type ChatKind = "contacts" | "groups";
+type ContactFormMode = "contact" | "conversation" | "edit" | null;
+type ManagedContact = { remoteJid: string; pushName?: string; profilePicUrl?: string };
 
 function Chat() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const isMD = useMediaQuery("(min-width: 768px)");
   const lastMessageRef = useRef<HTMLDivElement | null>(null);
   const [textareaHeight] = useState("auto");
@@ -36,19 +44,37 @@ function Chat() {
   const [realtimeChats, setRealtimeChats] = useState<ChatType[]>([]);
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ChatKind>("contacts");
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [contactFormMode, setContactFormMode] = useState<ContactFormMode>(null);
+  const [contactNumber, setContactNumber] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
 
   const { data: chats } = useFindChats({ instanceName: instance?.name, refetchInterval: 5000 });
+  const { data: contacts = [] } = useQuery<ManagedContact[]>({
+    queryKey: ["chats", "findContacts", instance?.name],
+    queryFn: async () => (await api.post(`/chat/findContacts/${instance?.name}`, { where: {} },
+      { headers: { apikey: instance?.token } })).data,
+    enabled: !!instance?.name,
+  });
 
   const allChats = useMemo(() => {
-    if (!chats) return realtimeChats;
     const map = new Map<string, ChatType>();
-    chats.forEach((c) => map.set(c.remoteJid, c));
+    chats?.forEach((c) => map.set(c.remoteJid, c));
     realtimeChats.forEach((c) => {
       const existing = map.get(c.remoteJid);
-      map.set(c.remoteJid, existing ? { ...existing, ...c } : c);
+      map.set(c.remoteJid, existing ? { ...c, ...existing, profilePicUrl: existing.profilePicUrl || c.profilePicUrl } : c);
+    });
+    contacts.forEach((contact) => {
+      const existing = map.get(contact.remoteJid);
+      if (existing) map.set(contact.remoteJid, {
+        ...existing,
+        pushName: contact.pushName || existing.pushName,
+        profilePicUrl: contact.profilePicUrl || existing.profilePicUrl,
+      });
     });
     return Array.from(map.values());
-  }, [chats, realtimeChats]);
+  }, [chats, realtimeChats, contacts]);
 
   const { instanceId, remoteJid } = useParams<{ instanceId: string; remoteJid: string }>();
   const navigate = useNavigate();
@@ -67,14 +93,18 @@ function Chat() {
 
       setRealtimeChats((prev) => {
         const idx = prev.findIndex((c) => c.remoteJid === jid);
-        const obj = {
+        const incoming = data.data as Partial<ChatType> | undefined;
+        const obj: ChatType = {
+          ...incoming,
           id: jid,
           remoteJid: jid,
           pushName: data?.data?.pushName || formatJid(jid),
           profilePicUrl: data?.data?.key?.profilePictureUrl || "",
-          ...(data?.data as Partial<ChatType>),
-          labels: ((data?.data as Partial<ChatType> | undefined)?.labels) ?? null,
-        } as ChatType;
+          labels: incoming?.labels ?? null,
+          createdAt: incoming?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          instanceId: instance.id,
+        };
         if (idx !== -1) {
           const next = [...prev];
           next[idx] = { ...next[idx], ...obj };
@@ -112,11 +142,83 @@ function Chat() {
 
   const handleBack = () => navigate(`/manager/instance/${instanceId}/chat`);
 
+  const refreshChats = () => {
+    queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
+    queryClient.invalidateQueries({ queryKey: ["chats", "findContacts"] }).catch(console.error);
+    queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }).catch(console.error);
+  };
+
+  const openContactForm = (mode: Exclude<ContactFormMode, null>, contact?: ManagedContact) => {
+    setContactsOpen(false);
+    setContactFormMode(mode);
+    setContactNumber(contact?.remoteJid.split("@")[0] || "");
+    setContactName(contact?.pushName || "");
+  };
+
+  const saveContact = async () => {
+    if (!instance || !contactFormMode || savingContact) return;
+    const digits = contactNumber.replace(/\D/g, "");
+    if (digits.length < 8 || digits.length > 15) {
+      toast.error("Informe o telefone com DDI e DDD");
+      return;
+    }
+    if (contactFormMode !== "conversation" && !contactName.trim()) {
+      toast.error("Informe o nome do contato");
+      return;
+    }
+    try {
+      setSavingContact(true);
+      const response = await api.post(`/chat/saveContact/${instance.name}`,
+        { remoteJid: contactFormMode === "edit" ? `${digits}@s.whatsapp.net` : digits,
+          name: contactName.trim() || digits }, { headers: { apikey: instance.token } });
+      setContactFormMode(null);
+      refreshChats();
+      if (contactFormMode === "conversation") handleChat(response.data.remoteJid);
+      else toast.success(contactFormMode === "edit" ? "Contato atualizado" : "Contato adicionado");
+    } catch (error) {
+      console.error("Error saving contact:", error);
+      toast.error("Não foi possível salvar o contato");
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const deleteContact = async (jid: string) => {
+    if (!instance || !window.confirm("Excluir este contato? As mensagens da conversa serão mantidas.")) return;
+    try {
+      await api.delete(`/chat/deleteContact/${instance.name}`,
+        { data: { remoteJid: jid }, headers: { apikey: instance.token } });
+      refreshChats();
+      toast.success("Contato excluído");
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      toast.error("Não foi possível excluir o contato");
+    }
+  };
+
+  const deleteConversation = async () => {
+    if (!instance || !remoteJid || !window.confirm("Excluir esta conversa e suas mensagens desta instância?")) return;
+    try {
+      await api.delete(`/chat/deleteConversation/${instance.name}`,
+        { data: { remoteJid }, headers: { apikey: instance.token } });
+      setRealtimeChats((current) => current.filter((chat) => chat.remoteJid !== remoteJid));
+      refreshChats();
+      handleBack();
+      toast.success("Conversa excluída");
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+      toast.error("Não foi possível excluir a conversa");
+    }
+  };
+
+  const selectedContact = contacts.find((contact) => contact.remoteJid === remoteJid);
+  const contactList = contacts.filter((contact) => contact.remoteJid.endsWith("@s.whatsapp.net"))
+    .sort((a, b) => (a.pushName || a.remoteJid).localeCompare(b.pushName || b.remoteJid));
+
   const visibleChats = useMemo(() => {
     const isContacts = kind === "contacts";
-    const filtered = allChats.filter((c) =>
-      isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us"),
-    );
+    const filtered = allChats.filter((c) => c.remoteJid !== "0@s.whatsapp.net" &&
+      (isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us")));
     if (!search.trim()) return filtered;
     const q = search.toLowerCase();
     return filtered.filter(
@@ -138,15 +240,25 @@ function Chat() {
         )}
       >
         <div className="space-y-3 border-b p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder={t("chat.search")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder={t("chat.search")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Button type="button" size="icon" variant="outline" title="Iniciar conversa" aria-label="Iniciar conversa"
+              onClick={() => openContactForm("conversation")}>
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Button type="button" size="icon" variant="outline" title="Gerenciar contatos" aria-label="Gerenciar contatos"
+              onClick={() => setContactsOpen(true)}>
+              <ContactRound className="h-4 w-4" />
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
@@ -245,6 +357,28 @@ function Chat() {
               </div>
             )}
             <Messages
+              headerNameOverride={selectedContact?.pushName}
+              headerActions={remoteJid.endsWith("@s.whatsapp.net") && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="icon" variant="ghost" aria-label="Ações da conversa">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openContactForm(selectedContact ? "edit" : "contact",
+                      selectedContact || { remoteJid })}>
+                      {selectedContact ? "Editar contato" : "Adicionar contato"}
+                    </DropdownMenuItem>
+                    {selectedContact && <DropdownMenuItem onClick={() => deleteContact(remoteJid)}>
+                      Excluir contato
+                    </DropdownMenuItem>}
+                    <DropdownMenuItem className="text-destructive" onClick={deleteConversation}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Excluir conversa
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               textareaRef={textareaRef}
               handleTextareaChange={handleTextareaChange}
               textareaHeight={textareaHeight}
@@ -266,6 +400,72 @@ function Chat() {
           </div>
         )}
       </main>
+
+      <Dialog open={contactsOpen} onOpenChange={setContactsOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+          <DialogTitle>Gerenciar contatos</DialogTitle>
+          <DialogDescription>Contatos salvos nesta instância.</DialogDescription>
+          <Button type="button" size="sm" className="w-fit" onClick={() => openContactForm("contact")}>
+            <Plus className="mr-2 h-4 w-4" /> Adicionar contato
+          </Button>
+          <div className="space-y-2">
+            {contactList.length === 0 && <p className="text-sm text-muted-foreground">Nenhum contato encontrado.</p>}
+            {contactList.map((contact) => (
+              <div key={contact.remoteJid} className="flex items-center gap-2 rounded-md border p-2">
+                <Avatar className="h-9 w-9 flex-shrink-0">
+                  <AvatarImage src={contact.profilePicUrl} alt={contact.pushName || formatJid(contact.remoteJid)} />
+                  <AvatarFallback><User className="h-4 w-4" /></AvatarFallback>
+                </Avatar>
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => {
+                  setContactsOpen(false);
+                  handleChat(contact.remoteJid);
+                }}>
+                  <span className="block truncate text-sm font-medium">{contact.pushName || formatJid(contact.remoteJid)}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{formatJid(contact.remoteJid)}</span>
+                </button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => openContactForm("edit", contact)}>
+                  Editar
+                </Button>
+                <Button type="button" size="icon" variant="ghost" aria-label={`Excluir ${contact.pushName || contact.remoteJid}`}
+                  onClick={() => deleteContact(contact.remoteJid)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={contactFormMode !== null} onOpenChange={(open) => { if (!open && !savingContact) setContactFormMode(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle>{contactFormMode === "conversation" ? "Iniciar conversa" :
+            contactFormMode === "edit" ? "Editar contato" : "Adicionar contato"}</DialogTitle>
+          <DialogDescription>Informe o telefone com código do país e DDD.</DialogDescription>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label htmlFor="contact-number" className="text-sm font-medium">Telefone</label>
+              <Input id="contact-number" type="tel" placeholder="5591999999999" value={contactNumber}
+                disabled={contactFormMode === "edit" || savingContact}
+                onChange={(event) => setContactNumber(event.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="contact-name" className="text-sm font-medium">
+                Nome {contactFormMode === "conversation" ? "(opcional)" : ""}
+              </label>
+              <Input id="contact-name" value={contactName} disabled={savingContact}
+                onChange={(event) => setContactName(event.target.value)} maxLength={100} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={savingContact} onClick={() => setContactFormMode(null)}>
+              Cancelar
+            </Button>
+            <Button type="button" disabled={savingContact} onClick={saveContact}>
+              {contactFormMode === "conversation" ? "Abrir conversa" : "Salvar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

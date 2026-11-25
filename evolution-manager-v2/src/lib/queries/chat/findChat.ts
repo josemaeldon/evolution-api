@@ -15,10 +15,8 @@ export const findChat = async ({ instanceName, remoteJid }: IParams) => {
   const response = await api.post(`/chat/findChats/${instanceName}`, {
     where: { remoteJid },
   });
-  if (Array.isArray(response.data)) {
-    return response.data[0];
-  }
-  return response.data;
+  const chats = Array.isArray(response.data) ? response.data : [response.data];
+  return chats.find((chat) => chat?.remoteJid === remoteJid) ?? null;
 };
 
 export const useFindChat = (props: UseQueryParams<FindChatResponse> & Partial<IParams>) => {

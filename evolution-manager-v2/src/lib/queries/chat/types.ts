@@ -1,7 +1,7 @@
 import { Chat, Message } from "@/types/evolution.types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export type FindChatResponse = Chat;
+export type FindChatResponse = Chat | null;
 
 export type FindChatsResponse = Chat[];
 

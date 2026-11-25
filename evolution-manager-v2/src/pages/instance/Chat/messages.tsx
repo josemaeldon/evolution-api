@@ -1,5 +1,5 @@
 import { Send, User } from "lucide-react";
-import { RefObject, useEffect, useMemo, useState } from "react";
+import { ReactNode, RefObject, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 
@@ -30,6 +30,8 @@ import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
 import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
 
 type MessagesProps = {
+  headerNameOverride?: string;
+  headerActions?: ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
   handleTextareaChange: () => void;
   textareaHeight: string;
@@ -270,7 +272,7 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
   }
 };
 
-function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
+function Messages({ headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const { instance } = useInstance();
@@ -595,7 +597,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
     );
   };
 
-  const headerName = chat?.pushName || chat?.remoteJid?.split("@")[0];
+  const headerName = headerNameOverride || chat?.pushName || chat?.remoteJid?.split("@")[0] || remoteJid?.split("@")[0];
   const headerSub = chat?.remoteJid?.split("@")[0];
 
   return (
@@ -613,6 +615,7 @@ function Messages({ textareaRef, handleTextareaChange, textareaHeight, lastMessa
               <h3 className="truncate font-semibold">{headerName}</h3>
               <p className="truncate text-xs text-muted-foreground">{headerSub}</p>
             </div>
+            {headerActions}
           </div>
         </div>
         <div className="flex w-full flex-1 flex-col overflow-y-auto px-4 py-4">
