@@ -5,13 +5,14 @@ import axios from "axios";
 import { UseQueryParams } from "../types";
 
 interface IParams {
-  url: string | null;
+  url: string;
 }
 
 const queryKey = (params: Partial<IParams>) => ["auth", "verifyServer", JSON.stringify(params)];
 
 export const verifyServer = async ({ url }: IParams) => {
-  const response = await axios.get(`${url}/`);
+  const serverUrl = url.replace(/\/+$/, "");
+  const response = await axios.get(`${serverUrl}/health`);
   return response.data;
 };
 
