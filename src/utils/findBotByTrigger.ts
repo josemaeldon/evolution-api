@@ -1,19 +1,21 @@
 import { advancedOperatorsSearch } from './advancedOperatorsSearch';
 
 export const findBotByTrigger = async (botRepository: any, content: string, instanceId: string) => {
-  // Check for triggerType 'all' or 'none' (both should match any message)
-  const findTriggerAllOrNone = await botRepository.findFirst({
+  // Only an explicit "all" trigger may start a bot for every message.
+  const findTriggerAll = await botRepository.findFirst({
     where: {
       enabled: true,
-      triggerType: {
-        in: ['all', 'none'],
-      },
+      triggerType: 'all',
       instanceId: instanceId,
     },
   });
 
-  if (findTriggerAllOrNone) {
-    return findTriggerAllOrNone;
+  if (findTriggerAll) {
+    return findTriggerAll;
+  }
+
+  if (!content?.trim()) {
+    return null;
   }
 
   const findTriggerAdvanced = await botRepository.findMany({
@@ -30,15 +32,19 @@ export const findBotByTrigger = async (botRepository: any, content: string, inst
   }
 
   // Check for exact match
-  const findTriggerEquals = await botRepository.findFirst({
+  const findEquals = await botRepository.findMany({
     where: {
       enabled: true,
       triggerType: 'keyword',
       triggerOperator: 'equals',
-      triggerValue: content,
       instanceId: instanceId,
     },
   });
+  const normalizedContent = content?.trim().toLowerCase();
+  const findTriggerEquals = findEquals.find(
+    (bot: { triggerValue: string }) =>
+      bot.triggerValue?.trim().toLowerCase() === normalizedContent && !!normalizedContent,
+  );
 
   if (findTriggerEquals) {
     return findTriggerEquals;
@@ -57,11 +63,15 @@ export const findBotByTrigger = async (botRepository: any, content: string, inst
   let findTriggerRegex = null;
 
   for (const regex of findRegex) {
-    const regexValue = new RegExp(regex.triggerValue);
-
-    if (regexValue.test(content)) {
-      findTriggerRegex = regex;
-      break;
+    if (regex.triggerValue) {
+      try {
+        if (new RegExp(regex.triggerValue).test(content)) {
+          findTriggerRegex = regex;
+          break;
+        }
+      } catch {
+        // Ignore invalid expressions stored before validation was added.
+      }
     }
   }
 
@@ -80,7 +90,7 @@ export const findBotByTrigger = async (botRepository: any, content: string, inst
   let findTriggerStartsWith = null;
 
   for (const startsWith of findStartsWith) {
-    if (content.startsWith(startsWith.triggerValue)) {
+    if (startsWith.triggerValue && content.startsWith(startsWith.triggerValue)) {
       findTriggerStartsWith = startsWith;
       break;
     }
@@ -101,7 +111,7 @@ export const findBotByTrigger = async (botRepository: any, content: string, inst
   let findTriggerEndsWith = null;
 
   for (const endsWith of findEndsWith) {
-    if (content.endsWith(endsWith.triggerValue)) {
+    if (endsWith.triggerValue && content.endsWith(endsWith.triggerValue)) {
       findTriggerEndsWith = endsWith;
       break;
     }
@@ -122,7 +132,7 @@ export const findBotByTrigger = async (botRepository: any, content: string, inst
   let findTriggerContains = null;
 
   for (const contains of findContains) {
-    if (content.includes(contains.triggerValue)) {
+    if (contains.triggerValue && content.includes(contains.triggerValue)) {
       findTriggerContains = contains;
       break;
     }

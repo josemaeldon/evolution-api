@@ -797,7 +797,9 @@ export abstract class BaseChatbotController<BotType = any, BotData extends BaseC
 
       if (this.checkIgnoreJids(settings?.ignoreJids, remoteJid)) return;
 
-      const session = await this.getSession(remoteJid, instance);
+      const previousSession = await this.getSession(remoteJid, instance);
+      // A completed conversation must not bypass the configured start trigger.
+      const session = previousSession?.status === 'closed' ? null : previousSession;
 
       const content = getConversationMessage(msg);
 
@@ -822,6 +824,10 @@ export abstract class BaseChatbotController<BotType = any, BotData extends BaseC
           const findFallback = await this.botRepository.findFirst({
             where: {
               id: fallbackId,
+              instanceId: instance.instanceId,
+              enabled: true,
+              // A keyword bot must never start through the fallback path.
+              triggerType: 'none',
             },
           });
 
