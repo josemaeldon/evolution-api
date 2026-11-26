@@ -19,6 +19,7 @@ import { ChatVideoMessage } from "@/components/chat-video-message";
 import { ChatVoiceRecorder } from "@/components/chat-voice-recorder";
 import { ChatInteractiveComposer } from "@/components/chat-interactive-composer";
 import { ChatInteractiveMessage } from "@/components/chat-interactive-message";
+import { ChatEmojiPicker } from "@/components/chat-emoji-picker";
 
 import { useInstance } from "@/contexts/InstanceContext";
 
@@ -507,6 +508,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const [forwardSelectedJid, setForwardSelectedJid] = useState("");
   const [forwarding, setForwarding] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [reactingId, setReactingId] = useState("");
   const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
   const [olderPages, setOlderPages] = useState<Message[][]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -663,6 +665,20 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     setMessageText(e.target.value);
     updateTyping(e.target.value);
     handleTextareaChange();
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? messageText.length;
+    const end = textarea?.selectionEnd ?? start;
+    const next = `${messageText.slice(0, start)}${emoji}${messageText.slice(end)}`;
+    setMessageText(next);
+    updateTyping(next);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(start + emoji.length, start + emoji.length);
+      handleTextareaChange();
+    });
   };
   const { data: chat } = useFindChat({
     remoteJid,
@@ -1015,6 +1031,29 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     }
   };
 
+  const sendReaction = async (message: Message, emoji: string) => {
+    if (!instance?.name || !instance?.token || reactingId) return;
+    const currentReaction = reactionsByTarget.get(message.key.id)?.find((reaction) => reaction.sender === "Você")?.text;
+    const reaction = emoji === currentReaction ? "" : emoji;
+    try {
+      setReactingId(message.key.id);
+      const response = await api.post<Message>(
+        `/message/sendReaction/${instance.name}`,
+        { key: { id: message.key.id, remoteJid: message.key.remoteJid, fromMe: message.key.fromMe, ...(message.key.participant && { participant: message.key.participant }) }, reaction },
+        { headers: { apikey: instance.token } },
+      );
+      if (response.data?.key?.id && response.data.message?.reactionMessage) {
+        setRealtimeMessages((current) => [...current.filter((item) => item.key.id !== response.data.key.id), response.data]);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] });
+    } catch (error) {
+      console.error("Error sending reaction:", error);
+      toast.error("Não foi possível enviar a reação");
+    } finally {
+      setReactingId("");
+    }
+  };
+
   const sendForward = async () => {
     if (!forwardSource || !instance?.name || !instance?.token || forwarding || sendLockRef.current) return;
     const number = (forwardSelectedJid || forwardSearch).replace(/\D/g, "");
@@ -1083,6 +1122,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const renderBubbleRight = (message: Message) => (
     <div key={message.key.id} className="mb-4 flex justify-end">
       <div className="flex max-w-[85%] items-start gap-1">
+        <ChatEmojiPicker label="Reagir à mensagem" onSelect={(emoji) => sendReaction(message, emoji)} onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined} disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")} />
         {messageActions(message)}
         <div className="min-w-0">
           {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}</div>}
@@ -1124,6 +1164,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             </span>
           </div>
           {messageActions(message)}
+          <ChatEmojiPicker label="Reagir à mensagem" onSelect={(emoji) => sendReaction(message, emoji)} onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined} disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")} />
         </div>
       </div>
     );
@@ -1213,6 +1254,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             )}
             <div className="flex items-center gap-2 px-2 py-1.5">
               {!recordingActive && <div className="flex flex-shrink-0 items-center">{instance && <MediaOptions instance={instance} setSelectedMedia={setSelectedMedia} />}</div>}
+              {!recordingActive && <ChatEmojiPicker label="Inserir emoji" onSelect={insertEmoji} disabled={isSending} />}
               {!recordingActive && instance?.token && remoteJid && (
                 <ChatInteractiveComposer
                   key={remoteJid}
