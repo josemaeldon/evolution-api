@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ContactRound, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
+import { ArrowLeft, ContactRound, ListFilter, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
@@ -15,6 +15,7 @@ import { useInstance } from "@/contexts/InstanceContext";
 
 import { useFindChats } from "@/lib/queries/chat/findChats";
 import { api } from "@/lib/queries/api";
+import { saasApi } from "@/lib/queries/saas";
 import { getToken, TOKEN_ID } from "@/lib/queries/token";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +32,7 @@ const formatJid = (remoteJid: string): string => remoteJid.split("@")[0];
 type ChatKind = "contacts" | "groups";
 type ContactFormMode = "contact" | "conversation" | "edit" | null;
 type ManagedContact = { remoteJid: string; pushName?: string; profilePicUrl?: string };
+type OrganizationLabels = { labels: { id: string; name: string; color: string }[]; contacts: { remoteJid: string; labels: { id: string; name: string; color: string }[] }[] };
 
 function Chat() {
   const { t } = useTranslation();
@@ -50,6 +52,7 @@ function Chat() {
   const previousServerUnreadRef = useRef(new Map<string, number>());
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ChatKind>("contacts");
+  const [labelFilter, setLabelFilter] = useState("");
   const [contactsOpen, setContactsOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
@@ -69,6 +72,11 @@ function Chat() {
     queryKey: ["chats", "findContacts", instance?.name],
     queryFn: async () => (await api.post(`/chat/findContacts/${instance?.name}`, { where: {} }, { headers: { apikey: instance?.token } })).data,
     enabled: !!instance?.name,
+  });
+  const { data: organization } = useQuery<OrganizationLabels>({
+    queryKey: ["contactOrganization", instance?.id],
+    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization`)).data,
+    enabled: !!instance?.id,
   });
 
   const allChats = useMemo(() => {
@@ -115,10 +123,7 @@ function Chat() {
 
     const socket = connectSocket(serverUrl, instance.token, instance.name);
 
-    const handle = (data: {
-      instance?: string;
-      data?: { key?: { id?: string; fromMe?: boolean; remoteJid?: string; profilePictureUrl?: string }; pushName?: string; status?: string };
-    }) => {
+    const handle = (data: { instance?: string; data?: { key?: { id?: string; fromMe?: boolean; remoteJid?: string; profilePictureUrl?: string }; pushName?: string; status?: string } }) => {
       if (!instance || data.instance !== instance.name) return;
       const jid = data?.data?.key?.remoteJid;
       if (!jid) return;
@@ -218,7 +223,7 @@ function Chat() {
 
   const handleKindChange = (nextKind: ChatKind) => {
     setKind(nextKind);
-    if (remoteJid && (remoteJid.endsWith("@g.us") !== (nextKind === "groups"))) {
+    if (remoteJid && remoteJid.endsWith("@g.us") !== (nextKind === "groups")) {
       navigate(`/manager/instance/${instanceId}/chat`);
     }
   };
@@ -328,13 +333,20 @@ function Chat() {
       (contactSearchDigits.length > 0 && formatJid(contact.remoteJid).includes(contactSearchDigits)),
   );
 
+  const contactLabelsByJid = useMemo(() => new Map((organization?.contacts || []).map((contact) => [contact.remoteJid, contact.labels])), [organization?.contacts]);
+
   const visibleChats = useMemo(() => {
     const isContacts = kind === "contacts";
-    const filtered = allChats.filter((c) => c.remoteJid !== "0@s.whatsapp.net" && (isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us")));
+    const filtered = allChats.filter(
+      (c) =>
+        c.remoteJid !== "0@s.whatsapp.net" &&
+        (isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us")) &&
+        (!labelFilter || contactLabelsByJid.get(c.remoteJid)?.some((label) => label.id === labelFilter)),
+    );
     if (!search.trim()) return filtered;
     const q = search.toLowerCase();
     return filtered.filter((c) => (c.pushName && c.pushName.toLowerCase().includes(q)) || c.remoteJid.toLowerCase().includes(q));
-  }, [allChats, kind, search]);
+  }, [allChats, kind, search, contactLabelsByJid, labelFilter]);
 
   const showSidebar = !remoteJid || isMD;
   const showChat = !!remoteJid;
@@ -364,6 +376,24 @@ function Chat() {
               <ContactRound className="h-4 w-4" />
             </Button>
           </div>
+
+          {kind === "contacts" && !!organization?.labels.length && (
+            <label className="flex items-center gap-2">
+              <ListFilter className="h-4 w-4 text-muted-foreground" />
+              <select
+                aria-label="Filtrar conversas por etiqueta"
+                value={labelFilter}
+                onChange={(event) => setLabelFilter(event.target.value)}
+                className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm">
+                <option value="">Todas as etiquetas</option>
+                {organization.labels.map((label) => (
+                  <option key={label.id} value={label.id}>
+                    {label.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" variant={kind === "contacts" ? "secondary" : "ghost"} className="h-8" onClick={() => handleKindChange("contacts")}>
@@ -417,6 +447,15 @@ function Chat() {
                         )}
                       </div>
                       <p className="truncate text-sm text-muted-foreground">{formatJid(chat.remoteJid)}</p>
+                      {contactLabelsByJid.get(chat.remoteJid)?.length ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {contactLabelsByJid.get(chat.remoteJid)?.map((label) => (
+                            <span key={label.id} className="rounded px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: `${label.color}20`, color: label.color }}>
+                              {label.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </button>

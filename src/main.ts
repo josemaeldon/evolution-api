@@ -5,6 +5,7 @@ import '@utils/instrumentSentry';
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { HttpStatus, router } from '@api/routes/index.router';
+import { processBulkCampaignQueue } from '@api/routes/manager-saas.router';
 import { eventManager, waMonitor } from '@api/server.module';
 import { startSicoobReconciliation } from '@api/services/sicoob-pix.service';
 import {
@@ -160,9 +161,15 @@ async function bootstrap() {
 
   server.listen(httpServer.PORT, () => logger.log(httpServer.TYPE.toUpperCase() + ' - ON: ' + httpServer.PORT));
 
-  initWA().catch((error) => {
-    logger.error('Error loading instances: ' + error);
-  });
+  initWA()
+    .then(() => {
+      setInterval(() => {
+        processBulkCampaignQueue().catch((error) => logger.error('Bulk campaign queue error: ' + error));
+      }, 30_000).unref();
+    })
+    .catch((error) => {
+      logger.error('Error loading instances: ' + error);
+    });
   startSicoobReconciliation();
 
   onUnexpectedError();

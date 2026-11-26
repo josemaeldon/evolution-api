@@ -33,6 +33,8 @@ import Documentation from "@/pages/Documentation";
 import ChatForms from "@/pages/instance/ChatForms";
 import PublicChatForm from "@/pages/PublicChatForm";
 import FilesAndMedia from "@/pages/instance/FilesAndMedia";
+import ContactLabels from "@/pages/instance/Labels";
+import BulkMessaging from "@/pages/instance/BulkMessaging";
 
 const router = createBrowserRouter([
   {
@@ -129,6 +131,26 @@ const router = createBrowserRouter([
       <ProtectedRoute feature="chat">
         <InstanceLayout>
           <ChatForms />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/labels",
+    element: (
+      <ProtectedRoute feature="chat">
+        <InstanceLayout>
+          <ContactLabels />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/bulk-messaging",
+    element: (
+      <ProtectedRoute feature="chat">
+        <InstanceLayout>
+          <BulkMessaging />
         </InstanceLayout>
       </ProtectedRoute>
     ),

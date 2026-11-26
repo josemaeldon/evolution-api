@@ -4,7 +4,7 @@ import {
   MINIO_AVAILABLE,
   STORAGE_BACKEND,
 } from '@api/integrations/storage/s3/libs/minio.server';
-import { prismaRepository } from '@api/server.module';
+import { prismaRepository, sendMessageController } from '@api/server.module';
 import {
   clearSessionCookie,
   createSession,
@@ -33,10 +33,27 @@ import { promisify } from 'util';
 
 const router = Router();
 const scrypt = promisify(scryptCallback);
+let bulkQueueRunning = false;
 const loginAttempts = new Map<string, { count: number; until: number }>();
 const mediaExtensions = (extensions: string[]): Prisma.MediaWhereInput[] =>
   extensions.map((extension) => ({ fileName: { endsWith: `.${extension}`, mode: 'insensitive' } }));
 const stickerFilter: Prisma.MediaWhereInput = { type: { in: ['sticker', 'stickerMessage'] } };
+
+async function managedInstance(req: any, res: any) {
+  const principal = getManagerPrincipal(req);
+  const instance = await prismaRepository.instance.findFirst({
+    where: {
+      id: req.params.instanceId,
+      ...(principal.role === 'superadmin' ? {} : { companyId: principal.companyId }),
+    },
+    select: { id: true, name: true },
+  });
+  if (!instance) {
+    res.status(404).json(fail('Instância não encontrada'));
+    return null;
+  }
+  return instance;
+}
 const imageFilter: Prisma.MediaWhereInput = {
   AND: [
     { NOT: stickerFilter },
@@ -622,5 +639,226 @@ router.post('/companies/:companyId/instances/:instanceId', async (req, res) => {
   }
   return res.json({ id: instance.id, companyId: company.id });
 });
+
+router.get('/instance/:instanceId/organization', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const [labels, contacts] = await Promise.all([
+    prismaRepository.managerLabel.findMany({ where: { instanceId: instance.id }, orderBy: { name: 'asc' } }),
+    prismaRepository.contact.findMany({
+      where: { instanceId: instance.id, remoteJid: { endsWith: '@s.whatsapp.net' } },
+      select: {
+        id: true,
+        remoteJid: true,
+        pushName: true,
+        marketingOptIn: true,
+        ManagerLabels: { select: { Label: { select: { id: true, name: true, color: true } } } },
+      },
+      orderBy: { pushName: 'asc' },
+      take: 2000,
+    }),
+  ]);
+  return res.json({
+    labels,
+    contacts: contacts.map(({ ManagerLabels, ...contact }) => ({
+      ...contact,
+      labels: ManagerLabels.map(({ Label }) => Label),
+    })),
+  });
+});
+
+router.post('/instance/:instanceId/labels', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const name = String(req.body?.name || '').trim();
+  const color = String(req.body?.color || '#2563eb');
+  if (!name || name.length > 80 || !/^#[0-9a-fA-F]{6}$/.test(color))
+    return res.status(400).json(fail('Informe nome e cor válidos'));
+  const label = await prismaRepository.managerLabel
+    .create({ data: { name, color, instanceId: instance.id } })
+    .catch(() => null);
+  if (!label) return res.status(409).json(fail('Já existe uma etiqueta com esse nome'));
+  return res.status(201).json(label);
+});
+
+router.delete('/instance/:instanceId/labels/:labelId', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  await prismaRepository.managerLabel.deleteMany({ where: { id: req.params.labelId, instanceId: instance.id } });
+  return res.status(204).send();
+});
+
+router.put('/instance/:instanceId/contacts/:contactId/organization', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const contact = await prismaRepository.contact.findFirst({
+    where: { id: req.params.contactId, instanceId: instance.id },
+  });
+  if (!contact) return res.status(404).json(fail('Contato não encontrado'));
+  const labelIds: string[] = Array.isArray(req.body?.labelIds)
+    ? [...new Set<string>(req.body.labelIds.map((id: unknown) => String(id)))]
+    : [];
+  const validLabels = await prismaRepository.managerLabel.findMany({
+    where: { id: { in: labelIds }, instanceId: instance.id },
+    select: { id: true },
+  });
+  if (validLabels.length !== labelIds.length) return res.status(400).json(fail('Uma ou mais etiquetas são inválidas'));
+  await prismaRepository.$transaction([
+    prismaRepository.managerLabelAssignment.deleteMany({ where: { contactId: contact.id } }),
+    ...(labelIds.length
+      ? [
+          prismaRepository.managerLabelAssignment.createMany({
+            data: labelIds.map((labelId: string) => ({ contactId: contact.id, labelId })),
+          }),
+        ]
+      : []),
+    prismaRepository.contact.update({
+      where: { id: contact.id },
+      data: { marketingOptIn: req.body?.marketingOptIn === true },
+    }),
+  ]);
+  return res.json({ success: true });
+});
+
+router.get('/instance/:instanceId/campaigns', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const campaigns = await prismaRepository.bulkCampaign.findMany({
+    where: { instanceId: instance.id },
+    include: { _count: { select: { Recipients: true } }, Recipients: { select: { status: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+  return res.json(
+    campaigns.map(({ Recipients, ...campaign }) => ({
+      ...campaign,
+      counts: Recipients.reduce(
+        (counts: Record<string, number>, recipient) => ({
+          ...counts,
+          [recipient.status]: (counts[recipient.status] || 0) + 1,
+        }),
+        {},
+      ),
+    })),
+  );
+});
+
+router.post('/instance/:instanceId/campaigns', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const message = String(req.body?.message || '').trim();
+  const labelIds: string[] = Array.isArray(req.body?.labelIds)
+    ? [...new Set<string>(req.body.labelIds.map((id: unknown) => String(id)))]
+    : [];
+  const randomCount = Number(req.body?.randomCount || 0);
+  if (
+    !message ||
+    message.length > 4000 ||
+    labelIds.length > 50 ||
+    (!labelIds.length && !randomCount) ||
+    (randomCount && (!Number.isInteger(randomCount) || randomCount < 1 || randomCount > 500))
+  ) {
+    return res.status(400).json(fail('Informe mensagem e seleção válidas (limite de 500 contatos por campanha)'));
+  }
+  if (
+    labelIds.length &&
+    (await prismaRepository.managerLabel.count({ where: { id: { in: labelIds }, instanceId: instance.id } })) !==
+      labelIds.length
+  ) {
+    return res.status(400).json(fail('Uma ou mais etiquetas são inválidas'));
+  }
+  let contacts = await prismaRepository.contact.findMany({
+    where: {
+      instanceId: instance.id,
+      marketingOptIn: true,
+      remoteJid: { endsWith: '@s.whatsapp.net' },
+      ...(labelIds.length ? { ManagerLabels: { some: { labelId: { in: labelIds } } } } : {}),
+    },
+    select: { remoteJid: true },
+    distinct: ['remoteJid'],
+    take: 5000,
+  });
+  if (randomCount) contacts = contacts.sort(() => Math.random() - 0.5).slice(0, randomCount);
+  contacts = contacts.slice(0, 500);
+  if (!contacts.length) return res.status(400).json(fail('Nenhum contato autorizado para receber esta campanha'));
+  const campaign = await prismaRepository.bulkCampaign.create({
+    data: {
+      instanceId: instance.id,
+      message,
+      status: 'queued',
+      Recipients: { create: contacts.map(({ remoteJid }) => ({ remoteJid })) },
+    },
+    include: { _count: { select: { Recipients: true } } },
+  });
+  return res.status(201).json(campaign);
+});
+
+router.patch('/instance/:instanceId/campaigns/:campaignId', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const status = req.body?.status;
+  if (!['paused', 'queued'].includes(status)) return res.status(400).json(fail('Status inválido'));
+  const campaign = await prismaRepository.bulkCampaign.updateMany({
+    where: { id: req.params.campaignId, instanceId: instance.id, status: { in: ['queued', 'processing', 'paused'] } },
+    data: { status },
+  });
+  return campaign.count ? res.json({ success: true }) : res.status(404).json(fail('Campanha não encontrada'));
+});
+
+export async function processBulkCampaignQueue() {
+  if (bulkQueueRunning) return;
+  bulkQueueRunning = true;
+  try {
+    await prismaRepository.bulkCampaignRecipient.updateMany({
+      where: { status: 'sending', updatedAt: { lt: new Date(Date.now() - 10 * 60_000) } },
+      data: { status: 'queued' },
+    });
+    const recipient = await prismaRepository.bulkCampaignRecipient.findFirst({
+      where: { status: 'queued', Campaign: { status: { in: ['queued', 'processing'] } } },
+      include: { Campaign: { include: { Instance: { select: { name: true } } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!recipient) return;
+    const claimed = await prismaRepository.bulkCampaignRecipient.updateMany({
+      where: { id: recipient.id, status: 'queued' },
+      data: { status: 'sending' },
+    });
+    if (!claimed.count) return;
+    await prismaRepository.bulkCampaign.update({ where: { id: recipient.campaignId }, data: { status: 'processing' } });
+    try {
+      const optedIn = await prismaRepository.contact.findFirst({
+        where: { instanceId: recipient.Campaign.instanceId, remoteJid: recipient.remoteJid, marketingOptIn: true },
+        select: { id: true },
+      });
+      if (!optedIn) throw new Error('Consentimento removido antes do envio');
+      await sendMessageController.sendText(
+        { instanceName: recipient.Campaign.Instance.name },
+        { number: recipient.remoteJid.split('@')[0], text: recipient.Campaign.message },
+      );
+      await prismaRepository.bulkCampaignRecipient.update({
+        where: { id: recipient.id },
+        data: { status: 'sent', sentAt: new Date() },
+      });
+    } catch (error) {
+      await prismaRepository.bulkCampaignRecipient.update({
+        where: { id: recipient.id },
+        data: { status: 'failed', error: String(error).slice(0, 500) },
+      });
+    }
+    const remaining = await prismaRepository.bulkCampaignRecipient.count({
+      where: { campaignId: recipient.campaignId, status: 'queued' },
+    });
+    const sending = await prismaRepository.bulkCampaignRecipient.count({
+      where: { campaignId: recipient.campaignId, status: 'sending' },
+    });
+    if (!remaining && !sending)
+      await prismaRepository.bulkCampaign.update({
+        where: { id: recipient.campaignId },
+        data: { status: 'completed' },
+      });
+  } finally {
+    bulkQueueRunning = false;
+  }
+}
 
 export const managerSaasRouter = router;

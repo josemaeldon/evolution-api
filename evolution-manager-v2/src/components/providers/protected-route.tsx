@@ -18,9 +18,7 @@ const ProtectedRoute = ({ children, feature }: ProtectedRouteProps) => {
   const companyMode = localStorage.getItem("managerSaas") === "company";
   const { data: account, isPending, isError } = useManagerAccount();
 
-  const authenticated = companyMode
-    ? !!apiUrl && !!account
-    : provider === "go" ? !!apiUrl && !!token : !!apiUrl && !!token && !!version;
+  const authenticated = companyMode ? !!apiUrl && !!account : provider === "go" ? !!apiUrl && !!token : !!apiUrl && !!token && !!version;
 
   if (companyMode && isPending) return <div className="p-6">Carregando acesso...</div>;
   if (companyMode && isError) return <Navigate to="/manager/login" />;
@@ -33,7 +31,7 @@ const ProtectedRoute = ({ children, feature }: ProtectedRouteProps) => {
     return <Navigate to="/manager/" />;
   }
 
-  if (companyMode && account?.role === "user" && !(/^\/manager\/?$/.test(location.pathname) || /\/(?:chat|forms)(?:\/|$)/.test(location.pathname))) {
+  if (companyMode && account?.role === "user" && !(/^\/manager\/?$/.test(location.pathname) || /\/(?:chat|forms|labels|bulk-messaging)(?:\/|$)/.test(location.pathname))) {
     return <Navigate to="/manager/" />;
   }
 

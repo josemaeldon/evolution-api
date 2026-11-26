@@ -80,6 +80,8 @@ model Instance {
   updatedAt               DateTime?                @updatedAt @db.Timestamp
   Chat                    Chat[]
   Contact                 Contact[]
+  ManagerLabel            ManagerLabel[]
+  BulkCampaign            BulkCampaign[]
   Message                 Message[]
   Webhook                 Webhook?
   Chatwoot                Chatwoot?
@@ -264,14 +266,67 @@ model Contact {
   pushName      String?   @db.VarChar(100)
   customName    String?   @db.VarChar(100)
   profilePicUrl String?   @db.VarChar(500)
+  marketingOptIn Boolean @default(false) @db.Boolean
   createdAt     DateTime? @default(now()) @db.Timestamp
   updatedAt     DateTime? @updatedAt @db.Timestamp
   Instance      Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  ManagerLabels ManagerLabelAssignment[]
   instanceId    String
 
   @@unique([remoteJid, instanceId])
   @@index([remoteJid])
   @@index([instanceId])
+}
+
+model ManagerLabel {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(80)
+  color     String   @db.VarChar(20)
+  instanceId String
+  createdAt DateTime @default(now()) @db.Timestamp
+  Instance  Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Contacts  ManagerLabelAssignment[]
+
+  @@unique([instanceId, name])
+  @@index([instanceId])
+}
+
+model ManagerLabelAssignment {
+  contactId String
+  labelId   String
+  Contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  Label     ManagerLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, labelId])
+  @@index([labelId])
+}
+
+model BulkCampaign {
+  id        String   @id @default(cuid())
+  message   String   @db.Text
+  status    String   @default("queued") @db.VarChar(20)
+  instanceId String
+  createdAt DateTime @default(now()) @db.Timestamp
+  updatedAt DateTime @updatedAt @db.Timestamp
+  Instance  Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Recipients BulkCampaignRecipient[]
+
+  @@index([instanceId, status])
+}
+
+model BulkCampaignRecipient {
+  id          String   @id @default(cuid())
+  campaignId  String
+  remoteJid   String   @db.VarChar(100)
+  status      String   @default("queued") @db.VarChar(20)
+  error       String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @db.Timestamp
+  updatedAt   DateTime @updatedAt @db.Timestamp
+  sentAt      DateTime? @db.Timestamp
+  Campaign    BulkCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, remoteJid])
+  @@index([campaignId, status])
 }
 
 model Message {
