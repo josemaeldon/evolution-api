@@ -123,6 +123,10 @@ export class SendPresenceDto extends Metadata {
   delay: number;
 }
 
+export class SubscribePresenceDto {
+  number: string;
+}
+
 export class UpdateMessageDto extends Metadata {
   number: string;
   key: proto.IMessageKey;

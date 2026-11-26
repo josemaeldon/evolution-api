@@ -14,6 +14,7 @@ import {
   ReadMessageDto,
   SaveContactDto,
   SendPresenceDto,
+  SubscribePresenceDto,
   UpdateMessageDto,
   WhatsAppNumberDto,
 } from '@api/dto/chat.dto';
@@ -100,6 +101,14 @@ export class ChatController {
 
   public async sendPresence({ instanceName }: InstanceDto, data: SendPresenceDto) {
     return await this.waMonitor.waInstances[instanceName].sendPresence(data);
+  }
+
+  public async subscribePresence({ instanceName }: InstanceDto, data: SubscribePresenceDto) {
+    const channel = this.waMonitor.waInstances[instanceName];
+    if (channel?.integration !== 'WHATSAPP-BAILEYS') {
+      throw new BadRequestException('Presença indisponível para este canal');
+    }
+    return await channel.subscribePresence(data);
   }
 
   public async fetchPrivacySettings({ instanceName }: InstanceDto) {

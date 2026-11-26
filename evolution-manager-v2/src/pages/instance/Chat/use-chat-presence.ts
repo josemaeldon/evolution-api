@@ -10,6 +10,7 @@ type PresenceEvent = {
   instance?: string;
   data?: {
     id?: string;
+    idAlt?: string | null;
     presences?: Record<string, { lastKnownPresence?: string }>;
   };
 };
@@ -67,14 +68,15 @@ export function useChatPresence(instanceName?: string, token?: string, integrati
   useEffect(() => {
     setContactTyping(false);
     if (incomingTimer.current) clearTimeout(incomingTimer.current);
-    if (!instanceName || !token || !remoteJid?.endsWith("@s.whatsapp.net")) return;
+    if (!canSend) return;
     const serverUrl = getToken(TOKEN_ID.API_URL);
     if (!serverUrl) return;
 
     const socket = connectSocket(serverUrl, token, instanceName);
     const handlePresence = (event: PresenceEvent) => {
-      if (event.instance !== instanceName || event.data?.id !== remoteJid) return;
-      const composing = Object.values(event.data.presences || {}).some((presence) => presence.lastKnownPresence === "composing");
+      const data = event.data;
+      if (event.instance !== instanceName || !data || (data.id !== remoteJid && data.idAlt !== remoteJid)) return;
+      const composing = Object.values(data.presences || {}).some((presence) => presence.lastKnownPresence === "composing");
       setContactTyping(composing);
       if (incomingTimer.current) clearTimeout(incomingTimer.current);
       if (composing) incomingTimer.current = setTimeout(() => setContactTyping(false), 8000);
@@ -82,12 +84,19 @@ export function useChatPresence(instanceName?: string, token?: string, integrati
 
     socket.on("presence.update", handlePresence);
     socket.connect();
+    const subscribe = () => {
+      api.post(`/chat/subscribePresence/${instanceName}`, { number: remoteJid }, { headers: { apikey: token } })
+        .catch((error) => console.error("Failed to subscribe to typing presence:", error));
+    };
+    subscribe();
+    const refresh = setInterval(subscribe, 60_000);
     return () => {
+      clearInterval(refresh);
       socket.off("presence.update");
       disconnectSocket(socket);
       if (incomingTimer.current) clearTimeout(incomingTimer.current);
     };
-  }, [instanceName, token, remoteJid]);
+  }, [canSend, instanceName, token, remoteJid]);
 
   return { contactTyping, updateTyping, stopTyping };
 }

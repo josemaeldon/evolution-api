@@ -18,6 +18,7 @@ const USER_CHAT_ACTIONS = new Set([
   'getBase64FromMediaMessage',
   'updateMessage',
   'sendPresence',
+  'subscribePresence',
   'findContacts',
   'saveContact',
   'deleteContact',

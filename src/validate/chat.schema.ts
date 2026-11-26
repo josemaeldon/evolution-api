@@ -185,6 +185,15 @@ export const presenceSchema: JSONSchema7 = {
   required: ['number', 'presence', 'delay'],
 };
 
+export const subscribePresenceSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    number: { type: 'string', pattern: '^\\d{8,15}@s\\.whatsapp\\.net$' },
+  },
+  required: ['number'],
+};
+
 export const blockUserSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',

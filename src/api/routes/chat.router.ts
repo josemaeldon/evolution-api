@@ -15,6 +15,7 @@ import {
   ReadMessageDto,
   SaveContactDto,
   SendPresenceDto,
+  SubscribePresenceDto,
   UpdateMessageDto,
   WhatsAppNumberDto,
 } from '@api/dto/chat.dto';
@@ -41,6 +42,7 @@ import {
   profileStatusSchema,
   readMessageSchema,
   saveContactSchema,
+  subscribePresenceSchema,
   updateMessageSchema,
   whatsappNumberSchema,
 } from '@validate/validate.schema';
@@ -160,6 +162,16 @@ export class ChatRouter extends RouterBroker {
         });
 
         return res.status(HttpStatus.CREATED).json(response);
+      })
+      .post(this.routerPath('subscribePresence'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<SubscribePresenceDto>({
+          request: req,
+          schema: subscribePresenceSchema,
+          ClassRef: SubscribePresenceDto,
+          execute: (instance, data) => chatController.subscribePresence(instance, data),
+        });
+
+        return res.status(HttpStatus.OK).json(response);
       })
       .post(this.routerPath('updateBlockStatus'), ...guards, async (req, res) => {
         const response = await this.dataValidate<BlockUserDto>({

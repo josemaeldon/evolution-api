@@ -13,6 +13,7 @@ import {
   PrivacySettingDto,
   ReadMessageDto,
   SendPresenceDto,
+  SubscribePresenceDto,
   UpdateMessageDto,
   WhatsAppNumberDto,
 } from '@api/dto/chat.dto';
@@ -1987,7 +1988,15 @@ export class BaileysStartupService extends ChannelStartupService {
                 return;
               }
 
-              this.sendDataWebhook(Events.PRESENCE_UPDATE, payload);
+              let idAlt: string | null = null;
+              if (isLidUser(payload.id)) {
+                try {
+                  idAlt = await this.client.signalRepository.lidMapping.getPNForLID(payload.id);
+                } catch (error) {
+                  this.logger.error(error);
+                }
+              }
+              this.sendDataWebhook(Events.PRESENCE_UPDATE, { ...payload, idAlt });
             }
 
             if (!settings?.groupsIgnore) {
@@ -2670,6 +2679,16 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   // Instance Controller
+  public async subscribePresence({ number }: SubscribePresenceDto) {
+    try {
+      await this.client.presenceSubscribe(number);
+      return { subscribed: true };
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error.toString());
+    }
+  }
+
   public async sendPresence(data: SendPresenceDto) {
     try {
       const { number } = data;
