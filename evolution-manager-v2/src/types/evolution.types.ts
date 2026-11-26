@@ -102,6 +102,7 @@ export type QuotedMessage = {
 export type SendText = {
   number: string;
   text: string;
+  clientRequestId?: string;
   signMessage?: boolean;
   quoted?: QuotedMessage;
   options?: {
@@ -113,6 +114,7 @@ export type SendText = {
 
 export type SendMedia = {
   number: string;
+  clientRequestId?: string;
   signMessage?: boolean;
   quoted?: QuotedMessage;
   mediaMessage: {
@@ -131,6 +133,7 @@ export type SendMedia = {
 export type SendAudio = {
   number: string;
   audio: string; // Base64 string
+  clientRequestId?: string;
   quoted?: QuotedMessage;
 };
 

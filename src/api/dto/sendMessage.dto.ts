@@ -38,6 +38,7 @@ export class StatusMessage {
 
 export class Metadata {
   number: string;
+  clientRequestId?: string;
   delay?: number;
   quoted?: Quoted;
   linkPreview?: boolean;

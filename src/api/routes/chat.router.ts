@@ -22,7 +22,7 @@ import {
 import { InstanceDto } from '@api/dto/instance.dto';
 import { Query } from '@api/repository/repository.service';
 import { chatController } from '@api/server.module';
-import { managerSender, recordManagerSender } from '@api/services/manager-message.service';
+import { managerSender, recordManagerSender, runIdempotentSend } from '@api/services/manager-message.service';
 import { Contact, Message, MessageUpdate } from '@prisma/client';
 import {
   archiveChatSchema,
@@ -110,17 +110,18 @@ export class ChatRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('forwardMessage'), ...guards, async (req, res) => {
-        const sender = await managerSender(req);
-        const response = await this.dataValidate<ForwardMessageDto>({
-          request: req,
-          schema: forwardMessageSchema,
-          ClassRef: ForwardMessageDto,
-          execute: (instance, data) => chatController.forwardMessage(instance, data),
+        const response = await runIdempotentSend(req, async () => {
+          const sender = await managerSender(req);
+          const sent = await this.dataValidate<ForwardMessageDto>({
+            request: req,
+            schema: forwardMessageSchema,
+            ClassRef: ForwardMessageDto,
+            execute: (instance, data) => chatController.forwardMessage(instance, data),
+          });
+          return recordManagerSender(req.params.instanceName, sent, sender, false);
         });
 
-        return res
-          .status(HttpStatus.CREATED)
-          .json(await recordManagerSender(req.params.instanceName, response, sender, false));
+        return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('fetchProfilePictureUrl'), ...guards, async (req, res) => {
         const response = await this.dataValidate<NumberDto>({

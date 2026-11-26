@@ -138,6 +138,7 @@ export const forwardMessageSchema: JSONSchema7 = {
     id: { type: 'string', minLength: 1 },
     remoteJid: { type: 'string', minLength: 1 },
     number: { type: 'string', pattern: '^\\d{8,15}$' },
+    clientRequestId: { type: 'string', format: 'uuid' },
   },
   required: ['id', 'remoteJid', 'number'],
 };

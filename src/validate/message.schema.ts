@@ -70,6 +70,7 @@ export const textMessageSchema: JSONSchema7 = {
   type: 'object',
   properties: {
     number: { ...numberDefinition },
+    clientRequestId: { type: 'string', format: 'uuid' },
     text: { type: 'string' },
     linkPreview: { type: 'boolean' },
     delay: {
@@ -97,6 +98,7 @@ export const mediaMessageSchema: JSONSchema7 = {
   type: 'object',
   properties: {
     number: { ...numberDefinition },
+    clientRequestId: { type: 'string', format: 'uuid' },
     mediatype: { type: 'string', enum: ['image', 'document', 'video', 'audio'] },
     mimetype: { type: 'string' },
     media: { type: 'string' },
@@ -153,6 +155,7 @@ export const audioMessageSchema: JSONSchema7 = {
   type: 'object',
   properties: {
     number: { ...numberDefinition },
+    clientRequestId: { type: 'string', format: 'uuid' },
     audio: { type: 'string' },
     delay: {
       type: 'integer',

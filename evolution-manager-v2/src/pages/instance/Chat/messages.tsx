@@ -482,6 +482,18 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const { data: managerAccount } = useManagerAccount();
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const sendLockRef = useRef(false);
+  const pendingSendRef = useRef<{ kind: string; chat?: string; content: string | File | Blob; caption?: string; id: string } | null>(null);
+  const requestIdFor = (kind: string, content: string | File | Blob, caption?: string) => {
+    const pending = pendingSendRef.current;
+    if (pending?.kind === kind && pending.chat === remoteJid && pending.content === content && pending.caption === caption) return pending.id;
+    const id = crypto.randomUUID();
+    pendingSendRef.current = { kind, chat: remoteJid, content, caption, id };
+    return id;
+  };
+  const clearRequestId = (id: string) => {
+    if (pendingSendRef.current?.id === id) pendingSendRef.current = null;
+  };
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
   const [recordingActive, setRecordingActive] = useState(false);
   const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
@@ -511,19 +523,28 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
   const sendRecording = async (audio: Blob) => {
     if (!remoteJid || !instance?.name || !instance?.token) throw new Error("Instância indisponível");
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(",")[1]);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(audio);
-    });
-    await sendAudioMutation({ instanceName: instance.name, token: instance.token, data: { number: remoteJid, audio: base64, ...(replyTo && { quoted: quotedMessage(replyTo) }) } });
-    setReplyTo(null);
+    if (sendLockRef.current) throw new Error("Envio em andamento");
+    sendLockRef.current = true;
+    const clientRequestId = requestIdFor("audio", audio, replyTo?.key.id);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(audio);
+      });
+      await sendAudioMutation({ instanceName: instance.name, token: instance.token, data: { number: remoteJid, audio: base64, clientRequestId, ...(replyTo && { quoted: quotedMessage(replyTo) }) } });
+      clearRequestId(clientRequestId);
+      setReplyTo(null);
+    } finally {
+      sendLockRef.current = false;
+    }
   };
 
   // Handle sending text messages
   const sendTextMessage = async () => {
     if (!messageText.trim() || !remoteJid || !instance?.name || !instance?.token || isSending) return;
+    const clientRequestId = requestIdFor("text", messageText.trim(), replyTo?.key.id);
 
     try {
       setIsSending(true);
@@ -533,12 +554,14 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         data: {
           number: remoteJid,
           text: messageText.trim(),
+          clientRequestId,
           signMessage: managerAccount?.signMessages === true,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
         },
       });
 
       // Clear the input after sending
+      clearRequestId(clientRequestId);
       setMessageText("");
       setReplyTo(null);
       if (textareaRef.current) {
@@ -555,6 +578,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   // Handle sending media messages
   const sendMediaMessage = async () => {
     if (!selectedMedia || !remoteJid || !instance?.name || !instance?.token || isSending) return;
+    const clientRequestId = requestIdFor("media", selectedMedia, `${messageText.trim()}\0${replyTo?.key.id || ""}`);
 
     try {
       setIsSending(true);
@@ -577,6 +601,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         token: instance.token,
         data: {
           number: remoteJid,
+          clientRequestId,
           signMessage: managerAccount?.signMessages === true,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
           mediaMessage: {
@@ -590,6 +615,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       });
 
       // Clear the input and media after sending
+      clearRequestId(clientRequestId);
       setSelectedMedia(null);
       setMessageText("");
       setReplyTo(null);
@@ -606,11 +632,17 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
   // Handle message sending (decides between text or media)
   const sendMessage = async () => {
-    stopTyping();
-    if (selectedMedia) {
-      await sendMediaMessage();
-    } else {
-      await sendTextMessage();
+    if (sendLockRef.current) return;
+    sendLockRef.current = true;
+    try {
+      stopTyping();
+      if (selectedMedia) {
+        await sendMediaMessage();
+      } else {
+        await sendTextMessage();
+      }
+    } finally {
+      sendLockRef.current = false;
     }
   };
 
@@ -980,9 +1012,11 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   };
 
   const sendForward = async () => {
-    if (!forwardSource || !instance?.name || !instance?.token || forwarding) return;
+    if (!forwardSource || !instance?.name || !instance?.token || forwarding || sendLockRef.current) return;
     const number = (forwardSelectedJid || forwardSearch).replace(/\D/g, "");
     if (!/^\d{8,15}$/.test(number)) return;
+    sendLockRef.current = true;
+    const clientRequestId = requestIdFor("forward", `${forwardSource.key.id}:${number}`);
     try {
       setForwarding(true);
       await api.post(
@@ -991,10 +1025,12 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
           id: forwardSource.key.id,
           remoteJid: forwardSource.key.remoteJid,
           number,
+          clientRequestId,
         },
         { headers: { apikey: instance.token } },
       );
       setForwardSource(null);
+      clearRequestId(clientRequestId);
       await queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] });
       toast.success("Mensagem encaminhada");
     } catch (error) {
@@ -1002,6 +1038,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       toast.error("Não foi possível encaminhar a mensagem");
     } finally {
       setForwarding(false);
+      sendLockRef.current = false;
     }
   };
 

@@ -206,6 +206,8 @@ export class ChatbotController {
       findBot = await botRepository.findFirst({
         where: {
           id: session.botId,
+          instanceId: instance.instanceId,
+          enabled: true,
         },
       });
     }

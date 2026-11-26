@@ -19,6 +19,7 @@ export function ChatVoiceRecorder({ disabled, onActiveChange, onSend }: ChatVoic
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const releaseStream = () => {
@@ -97,7 +98,8 @@ export function ChatVoiceRecorder({ disabled, onActiveChange, onSend }: ChatVoic
   };
 
   const send = async () => {
-    if (!audio || sending) return;
+    if (!audio || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     setError(null);
     try {
@@ -107,6 +109,7 @@ export function ChatVoiceRecorder({ disabled, onActiveChange, onSend }: ChatVoic
       setError("Não foi possível enviar o áudio. Tente novamente.");
     } finally {
       setSending(false);
+      sendingRef.current = false;
     }
   };
 

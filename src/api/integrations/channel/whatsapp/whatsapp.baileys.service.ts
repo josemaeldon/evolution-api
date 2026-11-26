@@ -1215,14 +1215,22 @@ export class BaileysStartupService extends ChannelStartupService {
             messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
           }
 
-          // A sent message may also arrive through Baileys after it was saved by the send endpoint.
-          if (received.key.fromMe && received.key.id) {
+          // Baileys can replay any message, including media and messages already saved by a send endpoint.
+          if (received.key.id) {
             const alreadyStored = await this.prismaRepository.message.findFirst({
               where: {
                 instanceId: this.instanceId,
                 AND: [
                   { key: { path: ['id'], equals: received.key.id } },
-                  { key: { path: ['remoteJid'], equals: messageRaw.key.remoteJid } },
+                  {
+                    OR: [
+                      { key: { path: ['remoteJid'], equals: messageRaw.key.remoteJid } },
+                      { key: { path: ['remoteJidAlt'], equals: messageRaw.key.remoteJid } },
+                      ...(messageRaw.key.remoteJidAlt
+                        ? [{ key: { path: ['remoteJid'], equals: messageRaw.key.remoteJidAlt } }]
+                        : []),
+                    ],
+                  },
                 ],
               },
               select: { id: true },
@@ -2567,9 +2575,19 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
-        const msg = await this.prismaRepository.message.create({ data: messageRaw });
+        const existingMessage = await this.prismaRepository.message.findFirst({
+          where: {
+            instanceId: this.instanceId,
+            AND: [
+              { key: { path: ['id'], equals: messageRaw.key.id } },
+              { key: { path: ['remoteJid'], equals: messageRaw.key.remoteJid } },
+            ],
+          },
+          select: { id: true },
+        });
+        const msg = existingMessage || (await this.prismaRepository.message.create({ data: messageRaw }));
 
-        if (isMedia && !isJidGroup(messageRaw.key.remoteJid)) {
+        if (!existingMessage && isMedia && !isJidGroup(messageRaw.key.remoteJid)) {
           try {
             if (isVideo && !this.configService.get<S3>('S3').SAVE_VIDEO) {
               throw new Error('Video upload is disabled.');

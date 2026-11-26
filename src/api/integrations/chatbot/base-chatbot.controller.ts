@@ -725,6 +725,20 @@ export abstract class BaseChatbotController<BotType = any, BotData extends BaseC
         data: updateData,
       });
 
+      // A session started under an old trigger must not bypass the new trigger.
+      if (
+        this.integrationName === 'Typebot' &&
+        (bot.triggerType !== data.triggerType ||
+          bot.triggerOperator !== data.triggerOperator ||
+          bot.triggerValue !== data.triggerValue ||
+          (bot.enabled && !data.enabled))
+      ) {
+        await this.prismaRepository.integrationSession.updateMany({
+          where: { botId, instanceId, status: 'opened' },
+          data: { status: 'closed', awaitUser: false },
+        });
+      }
+
       return updatedBot;
     } catch (error) {
       this.logger.error(error);
@@ -798,8 +812,29 @@ export abstract class BaseChatbotController<BotType = any, BotData extends BaseC
       if (this.checkIgnoreJids(settings?.ignoreJids, remoteJid)) return;
 
       const previousSession = await this.getSession(remoteJid, instance);
-      // A completed conversation must not bypass the configured start trigger.
-      const session = previousSession?.status === 'closed' ? null : previousSession;
+      let session = previousSession?.status === 'closed' ? null : previousSession;
+
+      // Existing Typebot sessions created before a trigger change may still be open.
+      if (this.integrationName === 'Typebot' && session?.type === 'typebot') {
+        const sessionBot = await this.botRepository.findFirst({
+          where: { id: session.botId, instanceId: instance.instanceId, enabled: true },
+        });
+        const triggerChangedAfterStart =
+          sessionBot?.updatedAt &&
+          session.createdAt &&
+          new Date(sessionBot.updatedAt).getTime() > new Date(session.createdAt).getTime();
+
+        if (!sessionBot || triggerChangedAfterStart) {
+          await this.prismaRepository.integrationSession.update({
+            where: { id: session.id },
+            data: { status: 'closed', awaitUser: false },
+          });
+          session = null;
+        }
+      }
+
+      // Typebot accepts replies only while its flow is waiting for user input.
+      if (this.integrationName === 'Typebot' && session?.type === 'typebot' && !session.awaitUser) return;
 
       const content = getConversationMessage(msg);
 

@@ -106,6 +106,7 @@ export class ForwardMessageDto {
   id: string;
   remoteJid: string;
   number: string;
+  clientRequestId?: string;
 }
 export class Options {
   delay?: number;

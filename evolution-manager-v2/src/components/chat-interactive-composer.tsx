@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@evoapi/design-system/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -68,6 +68,8 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   const [amount, setAmount] = useState("");
   const [selectableCount, setSelectableCount] = useState(1);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const pendingRequestRef = useRef<{ signature: string; id: string } | null>(null);
   const [error, setError] = useState("");
 
   if (!supported || (business && group)) return null;
@@ -96,7 +98,11 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
                 : Boolean(title.trim() && entries.length > 0);
 
   const send = async () => {
-    if (!valid || sending) return;
+    if (!valid || sendingRef.current) return;
+    sendingRef.current = true;
+    const signature = JSON.stringify({ remoteJid, kind, title, body, cta, items, flowId, screenId, copyCode, paymentUrl, formId, pixKey, merchantName, merchantCity, amount, selectableCount });
+    const clientRequestId = pendingRequestRef.current?.signature === signature ? pendingRequestRef.current.id : crypto.randomUUID();
+    pendingRequestRef.current = { signature, id: clientRequestId };
     setSending(true);
     setError("");
     const number = remoteJid.split("@")[0];
@@ -157,7 +163,8 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
                   : kind === "poll"
                     ? { number, name: title.trim(), selectableCount, values: entries }
                     : { number, flowId: flowId.trim(), body: body.trim(), cta: cta.trim(), ...(title.trim() && { header: title.trim() }), ...(screenId.trim() && { screenId: screenId.trim() }) };
-      await api.post(`/message/${routes[kind]}/${instanceName}`, payload, { headers: { apikey: token } });
+      await api.post(`/message/${routes[kind]}/${instanceName}`, { ...payload, clientRequestId }, { headers: { apikey: token } });
+      pendingRequestRef.current = null;
       await Promise.all([queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }), queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] })]);
       setOpen(false);
       setTitle("");
@@ -175,6 +182,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
       setError(cause?.response?.data?.response?.message || cause?.response?.data?.message || cause?.message || "Não foi possível enviar a mensagem.");
     } finally {
       setSending(false);
+      sendingRef.current = false;
     }
   };
 

@@ -36,6 +36,7 @@ const sendMedia = async ({ instanceName, token, data }: SendMediaParams) => {
     // Send as flat structure as required by the newer API
     const jsonData = {
       number: data.number,
+      clientRequestId: data.clientRequestId,
       mediatype: data.mediaMessage.mediatype,
       mimetype: data.mediaMessage.mimetype,
       caption: data.mediaMessage.caption,
@@ -46,6 +47,7 @@ const sendMedia = async ({ instanceName, token, data }: SendMediaParams) => {
     };
 
     const response = await api.post(`/message/sendMedia/${instanceName}`, jsonData, {
+      timeout: 120000,
       headers: {
         apikey: token,
         "content-type": "application/json",
@@ -64,11 +66,13 @@ const sendAudio = async ({ instanceName, token, data }: SendAudioParams) => {
     // Always send as JSON with base64 audio
     const jsonData = {
       number: data.number,
+      clientRequestId: data.clientRequestId,
       audio: data.audio,
       quoted: data.quoted,
     };
 
     const response = await api.post(`/message/sendWhatsAppAudio/${instanceName}`, jsonData, {
+      timeout: 120000,
       headers: {
         apikey: token,
         "content-type": "application/json",
