@@ -53,7 +53,7 @@ export function signedText(name: string, text: string): string {
     .replace(/[\r\n*_~`]/g, ' ')
     .trim()
     .slice(0, 100);
-  return `*${safeName}*\n${text}`;
+  return `*${safeName}:*\n${text}`;
 }
 
 export async function recordManagerSender(

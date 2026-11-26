@@ -453,7 +453,7 @@ const withoutManagerSignature = (message: Message): Message => {
     .replace(/[\r\n*_~`]/g, " ")
     .trim()
     .slice(0, 100);
-  const prefix = `*${safeName}*\n`;
+  const prefix = `*${safeName}:*\n`;
   const content = { ...message.message };
   if (typeof content.conversation === "string" && content.conversation.startsWith(prefix)) {
     content.conversation = content.conversation.slice(prefix.length);
@@ -1125,7 +1125,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         <ChatEmojiPicker label="Reagir à mensagem" onSelect={(emoji) => sendReaction(message, emoji)} onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined} disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")} />
         {messageActions(message)}
         <div className="min-w-0">
-          {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}</div>}
+          {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}:</div>}
           <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
             <QuotedContent message={message} />
             <DeferredMessageContent message={withoutManagerSignature(message)} instanceName={instance?.name} token={instance?.token} />
