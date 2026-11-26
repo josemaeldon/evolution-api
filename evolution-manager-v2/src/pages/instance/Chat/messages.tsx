@@ -394,6 +394,9 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
     case "protocolMessage":
       return <span>Atualização da mensagem</span>;
 
+    case "secretEncryptedMessage":
+      return <span className="text-sm text-muted-foreground">Mensagem editada (conteúdo indisponível)</span>;
+
     default:
       // Fallback for unknown message types
       return (

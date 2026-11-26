@@ -142,7 +142,7 @@ import { Label } from 'baileys/lib/Types/Label';
 import { LabelAssociation } from 'baileys/lib/Types/LabelAssociation';
 import { spawn } from 'child_process';
 import { isArray, isBase64, isURL } from 'class-validator';
-import { createHash } from 'crypto';
+import { createDecipheriv, createHash, createHmac } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 import ffmpeg from 'fluent-ffmpeg';
 import FormData from 'form-data';
@@ -559,6 +559,109 @@ export class BaileysStartupService extends ChannelStartupService {
     } catch {
       return { conversation: '' };
     }
+  }
+
+  private async decryptSecretEncryptedMessageEdit(message: proto.IWebMessageInfo) {
+    const encrypted = message.message?.secretEncryptedMessage;
+    const targetKey = encrypted?.targetMessageKey;
+    if (
+      !encrypted ||
+      encrypted.secretEncType !== proto.Message.SecretEncryptedMessage.SecretEncType.MESSAGE_EDIT ||
+      !targetKey?.id
+    ) {
+      throw new Error('Unsupported encrypted message edit');
+    }
+
+    const original = (await this.getMessage(targetKey, true)) as any;
+    const rawSecret = original?.message?.messageContextInfo?.messageSecret;
+    const messageSecret = this.secretMessageBytes(rawSecret);
+    const encPayload = this.secretMessageBytes(encrypted.encPayload);
+    const encIv = this.secretMessageBytes(encrypted.encIv);
+    if (
+      !messageSecret ||
+      messageSecret.length !== 32 ||
+      !encPayload ||
+      encPayload.length < 17 ||
+      !encIv ||
+      encIv.length !== 12
+    ) {
+      throw new Error('Encrypted edit is missing valid key material');
+    }
+
+    const messageKey = message.key as any;
+    const senderCandidates = new Set<string>(
+      [
+        messageKey?.participant,
+        messageKey?.participantAlt,
+        messageKey?.remoteJid,
+        messageKey?.remoteJidAlt,
+        (message as any).participant,
+        this.instance.wuid,
+        this.client.user?.lid,
+      ].filter((jid): jid is string => typeof jid === 'string' && jid.length > 0),
+    );
+    for (const jid of [...senderCandidates]) {
+      try {
+        const mappedJid = jid.endsWith('@lid')
+          ? await this.client.signalRepository.lidMapping.getPNForLID(jid)
+          : await this.client.signalRepository.lidMapping.getLIDForPN(jid);
+        if (mappedJid) senderCandidates.add(mappedJid);
+      } catch {
+        // Keep trying the JIDs already present on the message.
+      }
+    }
+
+    const key0 = createHmac('sha256', Buffer.alloc(32)).update(messageSecret).digest();
+    for (const sender of senderCandidates) {
+      const sign = Buffer.concat([
+        Buffer.from(targetKey.id),
+        Buffer.from(sender),
+        Buffer.from(sender),
+        Buffer.from('Message Edit'),
+        Buffer.from([1]),
+      ]);
+      const decryptionKey = createHmac('sha256', key0).update(sign).digest();
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', decryptionKey, encIv);
+        decipher.setAuthTag(encPayload.subarray(encPayload.length - 16));
+        const plaintext = Buffer.concat([
+          decipher.update(encPayload.subarray(0, encPayload.length - 16)),
+          decipher.final(),
+        ]);
+        const decoded = proto.Message.decode(plaintext);
+        const edit = decoded.protocolMessage;
+        if (edit?.type === proto.Message.ProtocolMessage.Type.MESSAGE_EDIT && edit.editedMessage) {
+          return edit;
+        }
+      } catch {
+        // A different LID/phone-number representation may be the authenticated sender.
+      }
+    }
+    throw new Error('Unable to authenticate encrypted message edit');
+  }
+
+  private secretMessageBytes(value: unknown): Buffer | null {
+    if (Buffer.isBuffer(value)) return value;
+    if (value instanceof Uint8Array) return Buffer.from(value);
+    if (Array.isArray(value) && value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+      return Buffer.from(value);
+    }
+    if (typeof value === 'string') {
+      try {
+        return Buffer.from(value, 'base64');
+      } catch {
+        return null;
+      }
+    }
+    if (value && typeof value === 'object') {
+      const object = value as { type?: unknown; data?: unknown } & Record<string, unknown>;
+      if (object.type === 'Buffer' && Array.isArray(object.data)) return this.secretMessageBytes(object.data);
+      const indexes = Object.keys(object)
+        .filter((key) => /^\d+$/.test(key))
+        .sort((a, b) => Number(a) - Number(b));
+      if (indexes.length) return Buffer.from(indexes.map((key) => Number(object[key])));
+    }
+    return null;
   }
 
   private async defineAuthState() {
@@ -1127,8 +1230,26 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          const editedMessage =
+          let editedMessage =
             received?.message?.protocolMessage || received?.message?.editedMessage?.message?.protocolMessage;
+
+          const secretEncryptedMessage = received?.message?.secretEncryptedMessage;
+          if (secretEncryptedMessage) {
+            if (
+              secretEncryptedMessage.secretEncType === proto.Message.SecretEncryptedMessage.SecretEncType.MESSAGE_EDIT
+            ) {
+              try {
+                editedMessage = await this.decryptSecretEncryptedMessageEdit(received);
+              } catch (error) {
+                this.logger.warn(
+                  `Unable to decrypt encrypted message edit ${received.key?.id} for ${secretEncryptedMessage.targetMessageKey?.id}: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+            }
+
+            // Encrypted edit envelopes are not standalone messages and must never be stored as chat content.
+            if (!editedMessage) continue;
+          }
 
           if (editedMessage) {
             if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled)
