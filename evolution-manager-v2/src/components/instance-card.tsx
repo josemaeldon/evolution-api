@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import { TestInteractiveModal } from "@/components/test-interactive-modal";
+import { InstanceReconnectDialog } from "@/components/instance-reconnect-dialog";
 
 import { Instance } from "@/types/evolution.types";
 import { useManagerAccount } from "@/lib/queries/saas";
@@ -87,6 +88,12 @@ export function InstanceCard({ instance, isDeleting, onDelete }: InstanceCardPro
             <span className="font-mono">{numberFormatter.format(instance._count?.Message || 0)}</span>
           </div>
         </div>
+
+        {instance.connectionStatus === "close" && (
+          <div className="border-t border-sidebar-border px-4 py-3">
+            <InstanceReconnectDialog instance={instance} />
+          </div>
+        )}
 
         {account?.role !== "user" && <div className="flex border-t border-sidebar-border opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <Button
