@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 const dist = join(fileURLToPath(new URL('.', import.meta.url)), 'dist');
 const assets = join(dist, 'assets');
-const bundleName = readdirSync(assets).find((file) => /^index-.*\.js$/.test(file) && file !== 'index-local-assets.js');
+const indexPath = join(dist, 'index.html');
+const index = readFileSync(indexPath, 'utf8');
+const bundleName = index.match(/<script\b[^>]*\bsrc=["'](?:\/)?assets\/(index-[^"'/?]+\.js)["'][^>]*>/)?.[1];
 
 if (!bundleName) throw new Error('Manager JavaScript bundle not found');
 
@@ -13,11 +15,16 @@ const bundlePath = join(assets, bundleName);
 const localizedBundle = readFileSync(bundlePath, 'utf8');
 const version = createHash('sha256').update(localizedBundle).digest('hex').slice(0, 12);
 const localBundleName = 'index-local-assets.js';
+const versionedBundleName = `${localBundleName}?v=${version}`;
 
 writeFileSync(join(assets, localBundleName), localizedBundle);
+for (const fileName of readdirSync(assets).filter((file) => file.endsWith('.js') && file !== localBundleName)) {
+  const filePath = join(assets, fileName);
+  const contents = readFileSync(filePath, 'utf8');
+  if (contents.includes(bundleName)) {
+    writeFileSync(filePath, contents.replaceAll(bundleName, versionedBundleName));
+  }
+}
 unlinkSync(bundlePath);
 
-const indexPath = join(dist, 'index.html');
-const index = readFileSync(indexPath, 'utf8')
-  .replace(bundleName, `${localBundleName}?v=${version}`);
-writeFileSync(indexPath, index);
+writeFileSync(indexPath, index.replace(bundleName, versionedBundleName));
