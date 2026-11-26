@@ -223,6 +223,8 @@ const copyableMessageText = (message: Message): string => {
     nested.listMessage?.description,
     nested.pollCreationMessage?.name,
     nested.pollCreationMessageV3?.name,
+    nested.locationMessage?.name,
+    nested.locationMessage?.address,
   ];
   return candidates.find((value) => typeof value === "string" && value.trim())?.trim() || "";
 };
@@ -234,6 +236,7 @@ const messagePreview = (message: Message): string =>
     videoMessage: "Vídeo",
     audioMessage: "Áudio",
     documentMessage: "Documento",
+    locationMessage: "Localização",
     stickerMessage: "Figurinha",
     reactionMessage: message.message?.reactionMessage?.text ? `Reação ${message.message.reactionMessage.text}` : "Reação removida",
     protocolMessage: "Atualização da mensagem",
@@ -306,33 +309,34 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
         );
       }
 
-      if (message.message.locationMessage) {
-        const locationMsg = message.message.locationMessage;
-        return (
-          <div className="p-3 bg-muted rounded-lg max-w-xs">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="text-xl">📍</div>
-              <span className="font-medium">Location</span>
-            </div>
-            {locationMsg.name && <p className="text-sm font-medium">{locationMsg.name}</p>}
-            {locationMsg.address && <p className="text-xs text-muted-foreground">{locationMsg.address}</p>}
-            {locationMsg.degreesLatitude && locationMsg.degreesLongitude && (
-              <a
-                href={`https://maps.google.com/?q=${locationMsg.degreesLatitude},${locationMsg.degreesLongitude}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline text-sm mt-1 inline-block">
-                View on Maps
-              </a>
-            )}
-          </div>
-        );
-      }
-
       return <span>{getMessageText(message.message)}</span>;
 
     case "extendedTextMessage":
       return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
+
+    case "locationMessage": {
+      const location = message.message.locationMessage;
+      const latitude = location?.degreesLatitude;
+      const longitude = location?.degreesLongitude;
+      const hasCoordinates = typeof latitude === "number" && Number.isFinite(latitude) && typeof longitude === "number" && Number.isFinite(longitude);
+
+      return (
+        <div className="max-w-xs rounded-lg bg-muted p-3">
+          <div className="mb-2 flex items-center gap-2 font-medium"><span aria-hidden="true">📍</span> Localização</div>
+          {location?.name && <p className="text-sm font-medium">{location.name}</p>}
+          {location?.address && <p className="text-xs text-muted-foreground">{location.address}</p>}
+          {hasCoordinates && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-block text-sm text-primary hover:underline">
+              Abrir no mapa
+            </a>
+          )}
+        </div>
+      );
+    }
 
     case "interactiveMessage":
     case "viewOnceMessage":
