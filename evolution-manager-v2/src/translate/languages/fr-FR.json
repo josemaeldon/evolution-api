@@ -152,6 +152,15 @@
       "action": "Déconnexion",
       "title": "Êtes-vous sûr de vouloir vous déconnecter ?",
       "description": "Vous serez déconnecté et redirigé vers l'écran de connexion."
+    },
+    "profile": {
+      "action": "Profil",
+      "fallback": "Compte connecté",
+      "roles": {
+        "superadmin": "Super administrateur",
+        "admin": "Administrateur",
+        "user": "Utilisateur"
+      }
     }
   },
   "sidebar": {

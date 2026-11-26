@@ -128,8 +128,9 @@ export class WebsocketController extends EventController implements EventControl
 
     this.socket.on('connection', (socket) => {
       if (socket.data.managerInstanceName) socket.join(`manager:${socket.data.managerInstanceName}`);
+      else if (socket.data.legacyInstanceName) socket.join(`manager:${socket.data.legacyInstanceName}`);
       else if (socket.data.legacyGlobal) socket.join('legacy-global');
-      else if (socket.data.legacyInstanceName) socket.join(`legacy-instance:${socket.data.legacyInstanceName}`);
+      if (socket.data.legacyInstanceName) socket.join(`legacy-instance:${socket.data.legacyInstanceName}`);
       this.logger.info('User connected');
 
       socket.on('disconnect', () => {

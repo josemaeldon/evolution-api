@@ -153,6 +153,15 @@
       "action": "Sair",
       "title": "Deseja realmente sair?",
       "description": "Você será desconectado e redirecionado para a tela de login."
+    },
+    "profile": {
+      "action": "Perfil",
+      "fallback": "Conta conectada",
+      "roles": {
+        "superadmin": "Superadministrador",
+        "admin": "Administrador",
+        "user": "Usuário"
+      }
     }
   },
   "sidebar": {

@@ -689,7 +689,8 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     queryKey: ["chats", "findMessages", instance?.name, remoteJid, PAGE_SIZE],
     queryFn: () => fetchMessagesPage({ instanceName: instance!.name, remoteJid: remoteJid!, offset: PAGE_SIZE, page: 1 }),
     enabled: !!instance?.name && !!remoteJid,
-    refetchInterval: 5000,
+    // Keep incoming messages responsive when Socket.IO is unavailable behind a proxy.
+    refetchInterval: 1500,
   });
   const messages = messagePage?.records;
   const hasOlder = (messagePage?.pages || 0) > olderPages.length + 1;

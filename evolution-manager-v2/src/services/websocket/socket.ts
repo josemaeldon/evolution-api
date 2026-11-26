@@ -16,7 +16,10 @@ export interface WebSocketConnection {
 export const connectSocket = (serverUrl: string, token?: string, instanceName?: string): WebSocketConnection => {
   const apiKey = token || getToken(TOKEN_ID.INSTANCE_TOKEN) || getToken(TOKEN_ID.TOKEN) || "";
   const companyMode = localStorage.getItem("managerSaas") === "company";
-  const key = `${serverUrl}\0${apiKey}\0${instanceName || ""}`;
+  // Company manager sessions authenticate with an HttpOnly cookie scoped to
+  // the manager origin. Use that origin so the browser includes the cookie.
+  const socketUrl = companyMode ? window.location.origin : serverUrl;
+  const key = `${socketUrl}\0${apiKey}\0${instanceName || ""}`;
   const existing = activeSockets.get(key);
   if (existing) {
     existing.users += 1;
@@ -24,10 +27,12 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
   }
 
   // Create new socket connection
-  const socket = io(serverUrl, {
+  const socket = io(socketUrl, {
     // HTTP long polling also works behind proxies that do not forward WebSocket upgrades.
     transports: ["polling"],
-    query: companyMode ? { instanceName } : { apikey: apiKey },
+    // Keep the manager session as the primary auth, and include the scoped
+    // instance key as a fallback when a reverse proxy drops session cookies.
+    query: companyMode ? { instanceName, apikey: apiKey } : { apikey: apiKey },
     withCredentials: true,
     autoConnect: false,
     reconnection: true,
@@ -41,11 +46,11 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
 
   // Set up connection event handlers
   socket.on("connect", () => {
-    console.log(`✅ WebSocket connected to ${serverUrl}`);
+    console.log(`✅ WebSocket connected to ${socketUrl}`);
   });
 
   socket.on("disconnect", (reason) => {
-    console.log(`❌ WebSocket disconnected from ${serverUrl}:`, reason);
+    console.log(`❌ WebSocket disconnected from ${socketUrl}:`, reason);
   });
 
   socket.on("connect_error", (error) => {
@@ -56,18 +61,18 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
       unavailableSockets.add(key);
       socket.io.opts.reconnection = false;
       socket.disconnect();
-      console.warn(`Socket.IO indisponível em ${serverUrl} (HTTP ${status}); usando atualização periódica.`);
+      console.warn(`Socket.IO indisponível em ${socketUrl} (HTTP ${status}); usando atualização periódica.`);
       return;
     }
-    console.error(`🚫 WebSocket connection error to ${serverUrl}:`, error);
+    console.error(`🚫 WebSocket connection error to ${socketUrl}:`, error);
   });
 
   socket.on("reconnect", (attemptNumber) => {
-    console.log(`🔄 WebSocket reconnected to ${serverUrl} after ${attemptNumber} attempts`);
+    console.log(`🔄 WebSocket reconnected to ${socketUrl} after ${attemptNumber} attempts`);
   });
 
   socket.on("reconnect_error", (error) => {
-    console.error(`🔄❌ WebSocket reconnection error to ${serverUrl}:`, error);
+    console.error(`🔄❌ WebSocket reconnection error to ${socketUrl}:`, error);
   });
 
   return createSocketWrapper(socket, key);

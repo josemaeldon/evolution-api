@@ -11,9 +11,11 @@ type PresenceEvent = {
   data?: {
     id?: string;
     idAlt?: string | null;
-    presences?: Record<string, { lastKnownPresence?: string }>;
+    presences?: Record<string, { lastKnownPresence?: string } | string>;
   };
 };
+
+const normalizeJid = (jid?: string | null) => jid?.replace(/:\d+/, "").trim().toLowerCase();
 
 export function useChatPresence(instanceName?: string, token?: string, integration?: string, remoteJid?: string) {
   const [contactTyping, setContactTyping] = useState(false);
@@ -22,7 +24,8 @@ export function useChatPresence(instanceName?: string, token?: string, integrati
   const lastSent = useRef(0);
   const active = useRef(false);
   const requestQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const canSend = !!instanceName && !!token && !!remoteJid?.endsWith("@s.whatsapp.net") && integration === "WHATSAPP-BAILEYS";
+  const isDirectChat = ["@s.whatsapp.net", "@c.us", "@lid"].some((jidType) => remoteJid?.endsWith(jidType));
+  const canSend = !!instanceName && !!token && isDirectChat && integration === "WHATSAPP-BAILEYS";
 
   const sendPresence = useCallback(
     (presence: Presence) => {
@@ -75,24 +78,32 @@ export function useChatPresence(instanceName?: string, token?: string, integrati
     const socket = connectSocket(serverUrl, token, instanceName);
     const handlePresence = (event: PresenceEvent) => {
       const data = event.data;
-      if (event.instance !== instanceName || !data || (data.id !== remoteJid && data.idAlt !== remoteJid)) return;
-      const composing = Object.values(data.presences || {}).some((presence) => presence.lastKnownPresence === "composing");
-      setContactTyping(composing);
+      const selectedJid = normalizeJid(remoteJid);
+      const presenceJids = [normalizeJid(data?.id), normalizeJid(data?.idAlt)];
+      if (event.instance !== instanceName || !data || !selectedJid || !presenceJids.includes(selectedJid)) return;
+
+      const active = Object.values(data.presences || {}).some((presence) => {
+        const state = typeof presence === "string" ? presence : presence?.lastKnownPresence;
+        return state === "composing" || state === "recording";
+      });
+      setContactTyping(active);
       if (incomingTimer.current) clearTimeout(incomingTimer.current);
-      if (composing) incomingTimer.current = setTimeout(() => setContactTyping(false), 8000);
+      if (active) incomingTimer.current = setTimeout(() => setContactTyping(false), 8000);
     };
 
-    socket.on("presence.update", handlePresence);
-    socket.connect();
     const subscribe = () => {
       api.post(`/chat/subscribePresence/${instanceName}`, { number: remoteJid }, { headers: { apikey: token } })
         .catch((error) => console.error("Failed to subscribe to typing presence:", error));
     };
-    subscribe();
+
+    socket.on("presence.update", handlePresence);
+    socket.on("connect", subscribe);
+    socket.connect();
     const refresh = setInterval(subscribe, 60_000);
     return () => {
       clearInterval(refresh);
       socket.off("presence.update");
+      socket.off("connect");
       disconnectSocket(socket);
       if (incomingTimer.current) clearTimeout(incomingTimer.current);
     };

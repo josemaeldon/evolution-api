@@ -153,6 +153,15 @@
       "action": "Salir",
       "title": "¿Seguro que desea salir?",
       "description": "Será desconectado y redirigido a la pantalla de inicio de sesión."
+    },
+    "profile": {
+      "action": "Perfil",
+      "fallback": "Cuenta conectada",
+      "roles": {
+        "superadmin": "Superadministrador",
+        "admin": "Administrador",
+        "user": "Usuario"
+      }
     }
   },
   "sidebar": {
