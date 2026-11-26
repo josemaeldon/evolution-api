@@ -1,5 +1,5 @@
 import "./style.css";
-import { Copy, Forward, MoreHorizontal, Reply, Send, Trash2, Upload, User, X } from "lucide-react";
+import { Bold, Code2, Copy, Forward, Italic, List, ListOrdered, MoreHorizontal, Quote, Reply, Send, Strikethrough, Trash2, Upload, User, X } from "lucide-react";
 import { ReactNode, RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
@@ -166,6 +166,99 @@ const getMessageText = (messageObj: any): string => {
   return String(messageObj);
 };
 
+const WHATSAPP_FORMAT_MARKERS = ["```", "**", "~~", "*", "_", "~", "`"];
+
+const renderWhatsAppInline = (text: string, keyPrefix = "text"): ReactNode[] => {
+  const parts: ReactNode[] = [];
+  let plainStart = 0;
+  let index = 0;
+  let partIndex = 0;
+
+  while (index < text.length) {
+    const marker = WHATSAPP_FORMAT_MARKERS.find((candidate) => text.startsWith(candidate, index));
+    if (!marker || (index > 0 && text[index - 1] === "\\")) {
+      index += 1;
+      continue;
+    }
+
+    const closeIndex = text.indexOf(marker, index + marker.length);
+    if (closeIndex <= index + marker.length) {
+      index += marker.length;
+      continue;
+    }
+    const content = text.slice(index + marker.length, closeIndex);
+    if (!content.trim()) {
+      index = closeIndex + marker.length;
+      continue;
+    }
+
+    if (index > plainStart) parts.push(text.slice(plainStart, index));
+    const children = marker === "```" || marker === "`" ? [content] : renderWhatsAppInline(content, `${keyPrefix}-${partIndex}`);
+    const key = `${keyPrefix}-${partIndex++}`;
+    if (marker === "*" || marker === "**") parts.push(<strong key={key}>{children}</strong>);
+    else if (marker === "_") parts.push(<em key={key}>{children}</em>);
+    else if (marker === "~" || marker === "~~") parts.push(<del key={key}>{children}</del>);
+    else parts.push(<code key={key} className="rounded bg-black/10 px-1 py-0.5 font-mono text-[0.92em]">{children}</code>);
+
+    index = closeIndex + marker.length;
+    plainStart = index;
+  }
+
+  if (plainStart < text.length) parts.push(text.slice(plainStart));
+  return parts;
+};
+
+const WhatsAppFormattedText = ({ text, className = "" }: { text: string; className?: string }) => {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (/^\s*>\s?/.test(line)) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+        quoteLines.push(lines[index].replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(<blockquote key={`quote-${index}`} className="border-l-2 border-current/40 pl-3 opacity-90">{quoteLines.map((quoteLine, lineIndex) => <div key={lineIndex}>{renderWhatsAppInline(quoteLine, `quote-${index}-${lineIndex}`)}</div>)}</blockquote>);
+      continue;
+    }
+
+    const bulletMatch = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bulletMatch) {
+      const items: string[] = [];
+      while (index < lines.length) {
+        const match = lines[index].match(/^\s*[-*]\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1]);
+        index += 1;
+      }
+      blocks.push(<ul key={`list-${index}`} className="list-disc space-y-0.5 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{renderWhatsAppInline(item, `list-${index}-${itemIndex}`)}</li>)}</ul>);
+      continue;
+    }
+
+    const orderedMatch = line.match(/^\s*(\d+)[.)]\s+(.+)$/);
+    if (orderedMatch) {
+      const items: string[] = [];
+      const start = Number(orderedMatch[1]);
+      while (index < lines.length) {
+        const match = lines[index].match(/^\s*\d+[.)]\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1]);
+        index += 1;
+      }
+      blocks.push(<ol key={`ordered-${index}`} start={start} className="list-decimal space-y-0.5 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{renderWhatsAppInline(item, `ordered-${index}-${itemIndex}`)}</li>)}</ol>);
+      continue;
+    }
+
+    blocks.push(line ? <div key={`line-${index}`}>{renderWhatsAppInline(line, `line-${index}`)}</div> : <div key={`line-${index}`} className="h-3" />);
+    index += 1;
+  }
+
+  return <div className={`whitespace-pre-wrap break-words ${className}`}>{blocks}</div>;
+};
+
 const messageContent = (message: Message): Record<string, any> => {
   if (typeof message.message !== "string") return message.message || {};
   try {
@@ -173,6 +266,102 @@ const messageContent = (message: Message): Record<string, any> => {
   } catch {
     return { conversation: message.message };
   }
+};
+
+type MetaAiRichContent = { text: string; suggestions: string[]; images: string[] };
+
+const getMetaAiRichContent = (richResponse: Record<string, any> | undefined): MetaAiRichContent => {
+  if (!richResponse) return { text: "", suggestions: [], images: [] };
+
+  const suggestions: string[] = [];
+  const text = (Array.isArray(richResponse.submessages) ? richResponse.submessages : [])
+    .map((submessage: Record<string, any>) => {
+      const value = typeof submessage.messageText === "string" ? submessage.messageText : "";
+      const cleaned = value.replace(/<ui-widget>([\s\S]*?)<\/ui-widget>/gi, (_match, widget: string) => {
+        try {
+          const parsed = JSON.parse(widget);
+          if (parsed.type === "follow_up_suggestions" && Array.isArray(parsed.suggestions)) {
+            suggestions.push(
+              ...parsed.suggestions
+                .map((suggestion: Record<string, unknown>) => suggestion.display_text || suggestion.text)
+                .filter((suggestion: unknown): suggestion is string => typeof suggestion === "string" && !!suggestion.trim()),
+            );
+          }
+        } catch {
+          // Ignore unsupported widget payloads and keep rendering the text response.
+        }
+        return "";
+      });
+      return cleaned.replace(/\{\{\/?IE_\d+\}\}/g, "").trim();
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  const images: string[] = [];
+  const encodedData = richResponse.unifiedResponse?.data;
+  if (typeof encodedData === "string") {
+    try {
+      const decoded = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(encodedData), (char) => char.charCodeAt(0))));
+      const visit = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          value.forEach(visit);
+          return;
+        }
+        if (!value || typeof value !== "object") return;
+        const object = value as Record<string, any>;
+        const image = object.full_image || object.preview_image;
+        const url = typeof image?.url === "string" ? image.url : null;
+        if (url) {
+          try {
+            const parsedUrl = new URL(url);
+            if (parsedUrl.protocol === "https:" && parsedUrl.hostname.endsWith("whatsapp.net") && !images.includes(url)) {
+              images.push(url);
+            }
+          } catch {
+            // Ignore malformed image URLs from the rich response.
+          }
+          return;
+        }
+        Object.values(object).forEach(visit);
+      };
+      visit(decoded);
+    } catch {
+      // Older or incomplete rich responses may not contain decodable image metadata.
+    }
+  }
+
+  return { text, suggestions: [...new Set(suggestions)], images };
+};
+
+const ChatMetaAiMessage = ({ richResponse }: { richResponse: Record<string, any> }) => {
+  const content = getMetaAiRichContent(richResponse);
+
+  return (
+    <div className="flex max-w-lg flex-col gap-3">
+      {content.text && <WhatsAppFormattedText text={content.text} className="text-sm" />}
+      {content.images.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {content.images.map((url, index) => (
+            <a key={url} href={url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir imagem ${index + 1}`}>
+              <img src={url} alt={`Imagem ${index + 1} gerada pela Meta AI`} loading="lazy" className="h-auto max-h-64 w-full rounded-lg object-cover" />
+            </a>
+          ))}
+        </div>
+      )}
+      {content.suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-2" aria-label="Sugestões da Meta AI">
+          {content.suggestions.map((suggestion) => (
+            <span key={suggestion} className="rounded-full border bg-background/70 px-3 py-1 text-xs text-muted-foreground">
+              {suggestion}
+            </span>
+          ))}
+        </div>
+      )}
+      {!content.text && content.images.length === 0 && content.suggestions.length === 0 && (
+        <span className="text-sm text-muted-foreground">Resposta da Meta AI indisponível</span>
+      )}
+    </div>
+  );
 };
 
 const normalizeMessageForDisplay = (message: Message): Message => {
@@ -211,6 +400,7 @@ const copyableMessageText = (message: Message): string => {
   const nested = content.viewOnceMessage?.message || content.viewOnceMessageV2?.message || content.ephemeralMessage?.message || content;
   const candidates = [
     getMessageText(nested),
+    getMetaAiRichContent(nested.richResponseMessage).text,
     nested.extendedTextMessage?.text,
     nested.imageMessage?.caption,
     nested.videoMessage?.caption,
@@ -276,7 +466,7 @@ const quotedContentPreview = (message: Message): string | null => {
 const QuotedContent = ({ message }: { message: Message }) => {
   const preview = quotedContentPreview(message);
   if (!preview) return null;
-  return <div className="mb-2 max-w-full truncate rounded border-l-2 border-current bg-black/10 px-2 py-1 text-xs opacity-80">{preview}</div>;
+  return <div className="mb-2 max-w-full overflow-hidden rounded border-l-2 border-current bg-black/10 px-2 py-1 text-xs opacity-80"><WhatsAppFormattedText text={preview} className="line-clamp-2" /></div>;
 };
 
 // Component to render different message types based on messageType
@@ -300,10 +490,10 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
         return <ChatContactMessage contact={message.message.contactMessage} fromMe={message.key.fromMe} />;
       }
 
-      return <span>{getMessageText(message.message)}</span>;
+      return <WhatsAppFormattedText text={getMessageText(message.message)} />;
 
     case "extendedTextMessage":
-      return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
+      return <WhatsAppFormattedText text={message.message.conversation ?? message.message.extendedTextMessage?.text ?? ""} />;
 
     case "contactMessage":
       return <ChatContactMessage contact={message.message.contactMessage} fromMe={message.key.fromMe} />;
@@ -361,7 +551,7 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
             className="rounded-lg max-w-full h-auto"
             style={{ maxWidth: "400px", maxHeight: "400px", objectFit: "contain" }}
           />
-          {message.message.imageMessage?.caption && <p className="text-sm">{message.message.imageMessage.caption}</p>}
+          {message.message.imageMessage?.caption && <WhatsAppFormattedText text={message.message.imageMessage.caption} className="text-sm" />}
         </div>
       );
 
@@ -369,7 +559,7 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
       return (
         <div className="flex flex-col gap-2">
           <ChatVideoMessage message={message} instanceName={instanceName} token={token} />
-          {message.message.videoMessage?.caption && <p className="text-sm">{message.message.videoMessage.caption}</p>}
+          {message.message.videoMessage?.caption && <WhatsAppFormattedText text={message.message.videoMessage.caption} className="text-sm" />}
         </div>
       );
 
@@ -381,7 +571,12 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
       return (
         <div className="flex flex-col gap-2">
           <ChatDocumentMessage message={message} instanceName={instanceName} token={token} />
-          {message.message.documentWithCaptionMessage?.message?.documentMessage?.caption && <p className="text-sm">{message.message.documentWithCaptionMessage.message.documentMessage.caption}</p>}
+          {(message.message.documentMessage?.caption || message.message.documentWithCaptionMessage?.message?.documentMessage?.caption) && (
+            <WhatsAppFormattedText
+              text={message.message.documentMessage?.caption || message.message.documentWithCaptionMessage?.message?.documentMessage?.caption || ""}
+              className="text-sm"
+            />
+          )}
         </div>
       );
 
@@ -393,6 +588,9 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 
     case "protocolMessage":
       return <span>Atualização da mensagem</span>;
+
+    case "richResponseMessage":
+      return <ChatMetaAiMessage richResponse={message.message.richResponseMessage} />;
 
     case "secretEncryptedMessage":
       return <span className="text-sm text-muted-foreground">Mensagem editada (conteúdo indisponível)</span>;
@@ -707,6 +905,64 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       handleTextareaChange();
     });
   };
+
+  const applyWhatsAppFormatting = (format: "bold" | "italic" | "strike" | "monospace" | "quote" | "bullet" | "numbered") => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    let start = textarea.selectionStart;
+    let end = textarea.selectionEnd;
+    const originalStart = start;
+    const hadSelection = end > start;
+    const value = textarea.value;
+    const selected = value.slice(start, end);
+    let next: string;
+    let selectionStart: number;
+    let selectionEnd: number;
+
+    const wrappers = {
+      bold: ["*", "*"],
+      italic: ["_", "_"],
+      strike: ["~", "~"],
+      monospace: ["```", "```"],
+    } as const;
+
+    if (format in wrappers) {
+      const [before, after] = wrappers[format as keyof typeof wrappers];
+      const replacement = `${before}${selected}${after}`;
+      next = `${value.slice(0, start)}${replacement}${value.slice(end)}`;
+      selectionStart = start + before.length;
+      selectionEnd = selectionStart + selected.length;
+    } else {
+      const listMarkers = { quote: "> ", bullet: "- ", numbered: "1. " } as const;
+      const marker = listMarkers[format as keyof typeof listMarkers];
+      if (start === end) {
+        const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+        const lineEndIndex = value.indexOf("\n", start);
+        end = lineEndIndex < 0 ? value.length : lineEndIndex;
+        start = lineStart;
+      }
+      const lines = value.slice(start, end).split("\n");
+      const replacement = lines.map((line, lineIndex) => `${format === "numbered" ? `${lineIndex + 1}. ` : marker}${line}`).join("\n");
+      next = `${value.slice(0, start)}${replacement}${value.slice(end)}`;
+      if (hadSelection) {
+        selectionStart = start + marker.length;
+        selectionEnd = start + replacement.length;
+      } else {
+        selectionStart = start + marker.length + (originalStart - start);
+        selectionEnd = selectionStart;
+      }
+    }
+
+    setMessageText(next);
+    updateTyping(next);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(selectionStart, selectionEnd);
+      handleTextareaChange();
+    });
+  };
+
   const { data: chat } = useFindChat({
     remoteJid,
     instanceName: instance?.name,
@@ -1347,6 +1603,24 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
                   remoteJid={remoteJid}
                   recipientName={instance.profileName}
                 />
+              )}
+              {!recordingActive && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="icon" variant="ghost" className="h-9 w-9 flex-shrink-0" aria-label="Formatação de texto" title="Formatação de texto" disabled={isSending}>
+                      <Bold className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top">
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("bold")}><Bold className="mr-2 h-4 w-4" /> Negrito</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("italic")}><Italic className="mr-2 h-4 w-4" /> Itálico</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("strike")}><Strikethrough className="mr-2 h-4 w-4" /> Tachado</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("monospace")}><Code2 className="mr-2 h-4 w-4" /> Monoespaçado</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("quote")}><Quote className="mr-2 h-4 w-4" /> Citação</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("bullet")}><List className="mr-2 h-4 w-4" /> Lista com marcadores</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => applyWhatsAppFormatting("numbered")}><ListOrdered className="mr-2 h-4 w-4" /> Lista numerada</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
               {!recordingActive && (
                 <Textarea
