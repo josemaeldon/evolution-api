@@ -786,7 +786,7 @@ export class ChannelStartupService {
           "Contact"."id" as "contactId",
           "Message"."key"->>'remoteJid' as "remoteJid",
           CASE 
-            WHEN "Message"."key"->>'remoteJid' LIKE '%@g.us' THEN COALESCE("Chat"."name", "Contact"."pushName")
+            WHEN "Message"."key"->>'remoteJid' LIKE '%@g.us' THEN "Chat"."name"
             ELSE COALESCE("Contact"."customName", "Contact"."pushName", "Message"."pushName")
           END as "pushName",
           "Contact"."profilePicUrl",

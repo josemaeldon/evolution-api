@@ -3,21 +3,7 @@ import { getToken, TOKEN_ID } from "@/lib/queries/token";
 
 type SocketEntry = { socket: Socket; users: number };
 const activeSockets = new Map<string, SocketEntry>();
-const socketAvailability = new Map<string, Promise<boolean>>();
 const unavailableSockets = new Set<string>();
-
-const supportsSocket = (serverUrl: string): Promise<boolean> => {
-  const origin = new URL(serverUrl).origin;
-  const cached = socketAvailability.get(origin);
-  if (cached) return cached;
-
-  const check = fetch(`${origin}/`)
-    .then((response) => (response.ok ? response.json() : null))
-    .then((info) => info?.websocketEnabled === true)
-    .catch(() => false);
-  socketAvailability.set(origin, check);
-  return check;
-};
 
 export interface WebSocketConnection {
   _socket?: Socket;
@@ -34,7 +20,7 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
   const existing = activeSockets.get(key);
   if (existing) {
     existing.users += 1;
-    return createSocketWrapper(existing.socket, key, serverUrl);
+    return createSocketWrapper(existing.socket, key);
   }
 
   // Create new socket connection
@@ -84,7 +70,7 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
     console.error(`🔄❌ WebSocket reconnection error to ${serverUrl}:`, error);
   });
 
-  return createSocketWrapper(socket, key, serverUrl);
+  return createSocketWrapper(socket, key);
 };
 
 export const disconnectSocket = (connection: WebSocketConnection | Socket): void => {
@@ -101,7 +87,7 @@ export const disconnectSocket = (connection: WebSocketConnection | Socket): void
 };
 
 // Create a wrapper that provides a consistent interface
-const createSocketWrapper = (socket: Socket, key: string, serverUrl: string): WebSocketConnection => {
+const createSocketWrapper = (socket: Socket, key: string): WebSocketConnection => {
   const listeners = new Map<string, Set<(data: any) => void>>();
   return {
     _socket: socket,
@@ -115,12 +101,7 @@ const createSocketWrapper = (socket: Socket, key: string, serverUrl: string): We
       listeners.delete(event);
     },
     connect: () => {
-      if (unavailableSockets.has(key)) return;
-      supportsSocket(serverUrl).then((enabled) => {
-        if (enabled && !unavailableSockets.has(key) && activeSockets.get(key)?.socket === socket && !socket.connected) {
-          socket.connect();
-        }
-      });
+      if (!unavailableSockets.has(key) && activeSockets.get(key)?.socket === socket && !socket.connected) socket.connect();
     },
     disconnect: () => {
       socket.disconnect();

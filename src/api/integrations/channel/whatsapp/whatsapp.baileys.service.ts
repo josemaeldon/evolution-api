@@ -258,6 +258,7 @@ export class BaileysStartupService extends ChannelStartupService {
   private endSession = false;
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
+  private readonly groupNameLookupRetryAt = new Map<string, number>();
 
   // Cache TTL constants (in seconds)
   private readonly MESSAGE_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes - avoid duplicate message processing
@@ -1529,6 +1530,20 @@ export class BaileysStartupService extends ChannelStartupService {
             pushName: messageRaw.pushName,
           });
 
+          // A group message's pushName belongs to its sender, never to the group.
+          if (isJidGroup(received.key.remoteJid)) {
+            if (this.configService.get<Database>('DATABASE').SAVE_DATA.CONTACTS) {
+              const remoteJid = received.key.remoteJid;
+              const profilePicUrl = (await this.profilePicture(remoteJid)).profilePictureUrl;
+              await this.prismaRepository.contact.upsert({
+                where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
+                create: { remoteJid, instanceId: this.instanceId, profilePicUrl },
+                update: { profilePicUrl },
+              });
+            }
+            continue;
+          }
+
           const contact = await this.prismaRepository.contact.findFirst({
             where: { remoteJid: received.key.remoteJid, instanceId: this.instanceId },
           });
@@ -1773,10 +1788,12 @@ export class BaileysStartupService extends ChannelStartupService {
   private readonly groupHandler = {
     'groups.upsert': (groupMetadata: GroupMetadata[]) => {
       this.sendDataWebhook(Events.GROUPS_UPSERT, groupMetadata);
+      void this.saveGroupSubjects(groupMetadata).catch((error) => this.logger.error(error));
     },
 
     'groups.update': (groupMetadataUpdate: Partial<GroupMetadata>[]) => {
       this.sendDataWebhook(Events.GROUPS_UPDATE, groupMetadataUpdate);
+      void this.saveGroupSubjects(groupMetadataUpdate).catch((error) => this.logger.error(error));
 
       groupMetadataUpdate.forEach((group) => {
         if (isJidGroup(group.id)) {
@@ -4520,6 +4537,49 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   // Group
+  private async saveGroupSubjects(groups: Partial<GroupMetadata>[]) {
+    await Promise.all(
+      groups
+        .filter((group) => group.id && isJidGroup(group.id) && group.subject?.trim())
+        .map((group) =>
+          this.prismaRepository.chat.upsert({
+            where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: group.id } },
+            create: { instanceId: this.instanceId, remoteJid: group.id, name: group.subject.trim() },
+            update: { name: group.subject.trim() },
+          }),
+        ),
+    );
+  }
+
+  public async fetchChats(query: any) {
+    const chats = await super.fetchChats(query);
+    const missingGroups = chats
+      .filter(
+        (chat) =>
+          isJidGroup(chat.remoteJid) &&
+          !chat.pushName?.trim() &&
+          (this.groupNameLookupRetryAt.get(chat.remoteJid) || 0) < Date.now(),
+      )
+      .slice(0, 10);
+
+    await Promise.all(
+      missingGroups.map(async (chat) => {
+        this.groupNameLookupRetryAt.set(chat.remoteJid, Date.now() + 5 * 60_000);
+        try {
+          const metadata = await this.getGroupMetadataCache(chat.remoteJid);
+          if (!metadata?.subject?.trim()) return;
+          chat.pushName = metadata.subject.trim();
+          await this.saveGroupSubjects([metadata]);
+          this.groupNameLookupRetryAt.delete(chat.remoteJid);
+        } catch (error) {
+          this.logger.error(error);
+        }
+      }),
+    );
+
+    return chats;
+  }
+
   private async updateGroupMetadataCache(groupJid: string) {
     try {
       const meta = await this.client.groupMetadata(groupJid);
@@ -4549,7 +4609,7 @@ export class BaileysStartupService extends ChannelStartupService {
         const meta = await groupMetadataCache.get(groupJid);
 
         if (Date.now() - meta.timestamp > 3600000) {
-          await this.updateGroupMetadataCache(groupJid);
+          return (await this.updateGroupMetadataCache(groupJid)) || meta.data;
         }
 
         return meta.data;

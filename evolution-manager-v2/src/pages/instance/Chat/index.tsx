@@ -83,7 +83,7 @@ function Chat() {
       if (existing)
         map.set(contact.remoteJid, {
           ...existing,
-          pushName: contact.pushName || existing.pushName,
+          pushName: contact.remoteJid.endsWith("@g.us") ? existing.pushName : contact.pushName || existing.pushName,
           profilePicUrl: contact.profilePicUrl || existing.profilePicUrl,
         });
     });
@@ -148,7 +148,7 @@ function Chat() {
           ...incoming,
           id: jid,
           remoteJid: jid,
-          pushName: data?.data?.pushName || formatJid(jid),
+          pushName: jid.endsWith("@g.us") ? (idx !== -1 ? prev[idx].pushName : formatJid(jid)) : data?.data?.pushName || formatJid(jid),
           profilePicUrl: data?.data?.key?.profilePictureUrl || "",
           labels: incoming?.labels ?? null,
           createdAt: incoming?.createdAt || new Date().toISOString(),
@@ -440,7 +440,7 @@ function Chat() {
             <Messages
               key={remoteJid}
               contacts={contactList}
-              headerNameOverride={selectedContact?.pushName}
+              headerNameOverride={remoteJid.endsWith("@g.us") ? allChats.find((chat) => chat.remoteJid === remoteJid)?.pushName : selectedContact?.pushName}
               headerActions={
                 remoteJid.endsWith("@s.whatsapp.net") && (
                   <DropdownMenu>
