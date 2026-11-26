@@ -264,7 +264,8 @@ model Contact {
   remoteJid     String    @db.VarChar(100)
   pushName      String?   @db.VarChar(100)
   profilePicUrl String?   @db.VarChar(500)
-  marketingOptIn Boolean @default(false) @db.Boolean
+  marketingOptIn Boolean @default(true) @db.Boolean
+  birthDate     DateTime? @db.Date
   createdAt     DateTime? @default(now()) @db.Timestamp
   updatedAt     DateTime? @updatedAt @db.Timestamp
   Instance      Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)

@@ -34,6 +34,8 @@ import { promisify } from 'util';
 const router = Router();
 const scrypt = promisify(scryptCallback);
 let bulkQueueRunning = false;
+const BIRTHDAY_LABEL_ID = '__birthdays_today__';
+const BIRTHDAY_LABEL = { id: BIRTHDAY_LABEL_ID, name: 'Aniversariantes de hoje', color: '#db2777' };
 const loginAttempts = new Map<string, { count: number; until: number }>();
 const mediaExtensions = (extensions: string[]): Prisma.MediaWhereInput[] =>
   extensions.map((extension) => ({ fileName: { endsWith: `.${extension}`, mode: 'insensitive' } }));
@@ -115,6 +117,14 @@ const mediaTypeFilters = new Map<string, Prisma.MediaWhereInput>([
   ['other', { NOT: { OR: [imageFilter, videoFilter, audioFilter, documentFilter, stickerFilter] } }],
 ]);
 const fail = (message: string) => ({ error: message });
+const parseCalendarDate = (value: unknown) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
+  return { value, date, month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+};
+const birthdayDateOf = (birthDate: Date | string | null | undefined) =>
+  birthDate ? new Date(birthDate).toISOString().slice(5, 10) : null;
 const normalizeEmail = (email: unknown) =>
   String(email || '')
     .trim()
@@ -640,9 +650,33 @@ router.post('/companies/:companyId/instances/:instanceId', async (req, res) => {
   return res.json({ id: instance.id, companyId: company.id });
 });
 
+router.get('/instance/:instanceId/birthdays', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const date = parseCalendarDate(req.query.date);
+  if (!date) return res.status(400).json(fail('Informe a data local no formato AAAA-MM-DD'));
+  const contacts = await prismaRepository.contact.findMany({
+    where: { instanceId: instance.id, birthDate: { not: null }, remoteJid: { endsWith: '@s.whatsapp.net' } },
+    select: { id: true, remoteJid: true, pushName: true, customName: true, birthDate: true },
+    orderBy: [{ customName: 'asc' }, { pushName: 'asc' }],
+    take: 5000,
+  });
+  return res.json({
+    date: date.value,
+    contacts: contacts
+      .filter((contact) => birthdayDateOf(contact.birthDate) === date.value.slice(5))
+      .map((contact) => ({
+        id: contact.id,
+        remoteJid: contact.remoteJid,
+        name: contact.customName?.trim() || contact.pushName?.trim() || contact.remoteJid.split('@')[0],
+      })),
+  });
+});
+
 router.get('/instance/:instanceId/organization', async (req, res) => {
   const instance = await managedInstance(req, res);
   if (!instance) return;
+  const date = parseCalendarDate(req.query.date) || parseCalendarDate(new Date().toISOString().slice(0, 10))!;
   const [labels, contacts] = await Promise.all([
     prismaRepository.managerLabel.findMany({ where: { instanceId: instance.id }, orderBy: { name: 'asc' } }),
     prismaRepository.contact.findMany({
@@ -653,6 +687,7 @@ router.get('/instance/:instanceId/organization', async (req, res) => {
         pushName: true,
         customName: true,
         marketingOptIn: true,
+        birthDate: true,
         ManagerLabels: { select: { Label: { select: { id: true, name: true, color: true } } } },
       },
       orderBy: [{ customName: 'asc' }, { pushName: 'asc' }],
@@ -660,10 +695,13 @@ router.get('/instance/:instanceId/organization', async (req, res) => {
     }),
   ]);
   return res.json({
-    labels,
+    labels: [...labels, BIRTHDAY_LABEL],
     contacts: contacts.map(({ ManagerLabels, ...contact }) => ({
       ...contact,
-      labels: ManagerLabels.map(({ Label }) => Label),
+      labels: [
+        ...ManagerLabels.map(({ Label }) => Label),
+        ...(birthdayDateOf(contact.birthDate) === date.value.slice(5) ? [BIRTHDAY_LABEL] : []),
+      ],
     })),
   });
 });
@@ -721,29 +759,73 @@ router.put('/instance/:instanceId/contacts/:contactId/organization', async (req,
     where: { id: req.params.contactId, instanceId: instance.id },
   });
   if (!contact) return res.status(404).json(fail('Contato não encontrado'));
-  const labelIds: string[] = Array.isArray(req.body?.labelIds)
-    ? [...new Set<string>(req.body.labelIds.map((id: unknown) => String(id)))]
-    : [];
+  const body = req.body || {};
+  const hasLabelIds = Object.prototype.hasOwnProperty.call(body, 'labelIds');
+  const hasMarketingOptIn = Object.prototype.hasOwnProperty.call(body, 'marketingOptIn');
+  const hasBirthDate = Object.prototype.hasOwnProperty.call(body, 'birthDate');
+  if (hasLabelIds && !Array.isArray(body.labelIds)) return res.status(400).json(fail('Etiquetas inválidas'));
+  const labelIds: string[] = hasLabelIds ? [...new Set<string>(body.labelIds.map((id: unknown) => String(id)))] : [];
   const validLabels = await prismaRepository.managerLabel.findMany({
     where: { id: { in: labelIds }, instanceId: instance.id },
     select: { id: true },
   });
   if (validLabels.length !== labelIds.length) return res.status(400).json(fail('Uma ou mais etiquetas são inválidas'));
-  await prismaRepository.$transaction([
-    prismaRepository.managerLabelAssignment.deleteMany({ where: { contactId: contact.id } }),
-    ...(labelIds.length
-      ? [
-          prismaRepository.managerLabelAssignment.createMany({
-            data: labelIds.map((labelId: string) => ({ contactId: contact.id, labelId })),
-          }),
-        ]
-      : []),
-    prismaRepository.contact.update({
-      where: { id: contact.id },
-      data: { marketingOptIn: req.body?.marketingOptIn === true },
-    }),
-  ]);
+  let birthDate: Date | null | undefined;
+  if (hasBirthDate) {
+    if (body.birthDate === null || body.birthDate === '') birthDate = null;
+    else {
+      const parsedBirthDate = parseCalendarDate(body.birthDate);
+      if (!parsedBirthDate) return res.status(400).json(fail('Data de nascimento inválida'));
+      birthDate = parsedBirthDate.date;
+    }
+  }
+
+  await prismaRepository.$transaction(async (transaction) => {
+    if (hasLabelIds) {
+      await transaction.managerLabelAssignment.deleteMany({ where: { contactId: contact.id } });
+    }
+    if (labelIds.length) {
+      await transaction.managerLabelAssignment.createMany({
+        data: labelIds.map((labelId: string) => ({ contactId: contact.id, labelId })),
+      });
+    }
+    if (hasMarketingOptIn || hasBirthDate) {
+      await transaction.contact.update({
+        where: { id: contact.id },
+        data: {
+          ...(hasMarketingOptIn ? { marketingOptIn: body.marketingOptIn === true } : {}),
+          ...(hasBirthDate ? { birthDate } : {}),
+        },
+      });
+    }
+  });
   return res.json({ success: true });
+});
+
+router.put('/instance/:instanceId/contacts/marketing-opt-in', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const contactIds = Array.isArray(req.body?.contactIds)
+    ? [...new Set<string>(req.body.contactIds.map((id: unknown) => String(id)))].filter(Boolean)
+    : [];
+  const marketingOptIn = req.body?.marketingOptIn;
+  if (!contactIds.length || contactIds.length > 2000 || typeof marketingOptIn !== 'boolean') {
+    return res.status(400).json(fail('Selecione contatos e informe a autorização'));
+  }
+  const contacts = await prismaRepository.contact.findMany({
+    where: { id: { in: contactIds }, instanceId: instance.id, remoteJid: { endsWith: '@s.whatsapp.net' } },
+    select: { id: true },
+  });
+  if (contacts.length !== contactIds.length) return res.status(400).json(fail('Um ou mais contatos são inválidos'));
+  const result = await prismaRepository.contact.updateMany({
+    where: {
+      id: { in: contactIds },
+      instanceId: instance.id,
+      remoteJid: { endsWith: '@s.whatsapp.net' },
+    },
+    data: { marketingOptIn },
+  });
+  return res.json({ updated: result.count, marketingOptIn });
 });
 
 router.get('/instance/:instanceId/campaigns', async (req, res) => {
@@ -784,6 +866,9 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
   const labelIds: string[] = Array.isArray(req.body?.labelIds)
     ? [...new Set<string>(req.body.labelIds.map((id: unknown) => String(id)))]
     : [];
+  const birthdaySelected = labelIds.includes(BIRTHDAY_LABEL_ID);
+  const selectedLabelIds = labelIds.filter((id) => id !== BIRTHDAY_LABEL_ID);
+  const birthdayDate = birthdaySelected ? parseCalendarDate(req.body?.birthdayDate) : null;
   const randomCount = Number(req.body?.randomCount || 0);
   const intervalSeconds = Number(req.body?.intervalSeconds ?? 30);
   const image = req.body?.image;
@@ -803,8 +888,9 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     (!message && !imageProvided) ||
     message.length > 4000 ||
     labelIds.length > 50 ||
+    (birthdaySelected && !birthdayDate) ||
     !Number.isInteger(intervalSeconds) ||
-    intervalSeconds < 30 ||
+    intervalSeconds < 20 ||
     intervalSeconds > 60 ||
     intervalSeconds % 10 !== 0 ||
     (!labelIds.length && !randomCount) ||
@@ -819,9 +905,10 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     return res.status(400).json(fail('Informe mensagem e seleção válidas (limite de 500 contatos por campanha)'));
   }
   if (
-    labelIds.length &&
-    (await prismaRepository.managerLabel.count({ where: { id: { in: labelIds }, instanceId: instance.id } })) !==
-      labelIds.length
+    selectedLabelIds.length &&
+    (await prismaRepository.managerLabel.count({
+      where: { id: { in: selectedLabelIds }, instanceId: instance.id },
+    })) !== selectedLabelIds.length
   ) {
     return res.status(400).json(fail('Uma ou mais etiquetas são inválidas'));
   }
@@ -830,7 +917,23 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
       instanceId: instance.id,
       marketingOptIn: true,
       remoteJid: { endsWith: '@s.whatsapp.net' },
-      ...(labelIds.length ? { ManagerLabels: { some: { labelId: { in: labelIds } } } } : {}),
+      ...(selectedLabelIds.length || birthdaySelected
+        ? {
+            OR: [
+              ...(selectedLabelIds.length ? [{ ManagerLabels: { some: { labelId: { in: selectedLabelIds } } } }] : []),
+              ...(birthdayDate
+                ? [
+                    {
+                      birthDate: {
+                        gte: birthdayDate.date,
+                        lt: new Date(birthdayDate.date.getTime() + 24 * 60 * 60 * 1000),
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          }
+        : {}),
     },
     select: { remoteJid: true },
     distinct: ['remoteJid'],
@@ -919,21 +1022,29 @@ export async function processBulkCampaignQueue() {
         select: {
           id: true,
           pushName: true,
+          customName: true,
+          birthDate: true,
           ManagerLabels: { select: { Label: { select: { name: true } } } },
         },
       });
       if (!optedIn) throw new Error('Consentimento removido antes do envio');
       const phone = recipient.remoteJid.split('@')[0];
-      const name = optedIn.pushName?.trim() || phone;
+      const name = optedIn.customName?.trim() || optedIn.pushName?.trim() || phone;
+      const birthDate = optedIn.birthDate ? new Date(optedIn.birthDate) : null;
+      const birthDateText = birthDate ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' }).format(birthDate) : '';
+      const age = birthDate ? String(new Date().getUTCFullYear() - birthDate.getUTCFullYear()) : '';
       const variables: Record<string, string> = {
         nome: name,
         primeiro_nome: name.split(/\s+/)[0] || phone,
         telefone: phone,
         etiquetas: optedIn.ManagerLabels.map(({ Label }) => Label.name).join(', '),
+        data_nascimento: birthDateText,
+        aniversario: birthDate ? birthDate.toISOString().slice(5, 10).split('-').reverse().join('/') : '',
+        idade: age,
       };
       const personalizedMessage = recipient.Campaign.message.replace(
-        /{{\s*(nome|primeiro_nome|telefone|etiquetas)\s*}}/gi,
-        (_, key: string) => variables[key.toLowerCase()],
+        /{{\s*(nome|primeiro_nome|telefone|etiquetas|data_nascimento|aniversario|idade)\s*}}/gi,
+        (_, key: string) => variables[key.toLowerCase()] || '',
       );
       if (recipient.Campaign.mediaData && recipient.Campaign.mediaMimeType) {
         await sendMessageController.sendMedia(

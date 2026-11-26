@@ -14,13 +14,21 @@ type Campaign = { id: string; status: string; message: string; mediaFileName?: s
 type Organization = { labels: Label[] };
 
 const statusLabel: Record<string, string> = { queued: "Na fila", processing: "Em andamento", paused: "Pausada", completed: "Concluída" };
-const intervalOptions = [30, 40, 50, 60];
+const BIRTHDAY_LABEL_ID = "__birthdays_today__";
+const intervalOptions = [20, 30, 40, 50, 60];
 const messageVariables = [
   { token: "{{nome}}", label: "Nome completo", example: "Maria Silva" },
   { token: "{{primeiro_nome}}", label: "Primeiro nome", example: "Maria" },
   { token: "{{telefone}}", label: "Telefone", example: "5591999999999" },
   { token: "{{etiquetas}}", label: "Etiquetas do contato", example: "Cliente VIP" },
+  { token: "{{data_nascimento}}", label: "Data de nascimento", example: "15/08/1990" },
+  { token: "{{aniversario}}", label: "Aniversário", example: "15/08" },
+  { token: "{{idade}}", label: "Idade", example: "36" },
 ];
+const getLocalDate = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 export default function BulkMessaging() {
   const { instance } = useInstance();
@@ -29,13 +37,14 @@ export default function BulkMessaging() {
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [draggingImage, setDraggingImage] = useState(false);
-  const [intervalSeconds, setIntervalSeconds] = useState(30);
+  const [intervalSeconds, setIntervalSeconds] = useState(20);
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [randomCount, setRandomCount] = useState("");
   const [mode, setMode] = useState<"labels" | "random">("labels");
   const [confirmedConsent, setConfirmedConsent] = useState(false);
+  const localDate = getLocalDate();
   useEffect(() => {
     if (!image) {
       setImagePreview("");
@@ -46,8 +55,8 @@ export default function BulkMessaging() {
     return () => URL.revokeObjectURL(previewUrl);
   }, [image]);
   const organization = useQuery<Organization>({
-    queryKey: ["contactOrganization", instance?.id],
-    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization`)).data,
+    queryKey: ["contactOrganization", instance?.id, localDate],
+    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization?date=${localDate}`)).data,
     enabled: !!instance?.id,
   });
   const campaigns = useQuery<Campaign[]>({
@@ -75,12 +84,13 @@ export default function BulkMessaging() {
         message: message.trim(),
         ...(image && imageData ? { image: { data: imageData, mimetype: image.type, fileName: image.name } } : {}),
         labelIds: mode === "labels" ? selectedLabels : [],
+        ...(mode === "labels" && selectedLabels.includes(BIRTHDAY_LABEL_ID) ? { birthdayDate: localDate } : {}),
         randomCount: mode === "random" ? Number(randomCount) : 0,
         intervalSeconds,
       });
       setMessage("");
       setImage(null);
-      setIntervalSeconds(30);
+      setIntervalSeconds(20);
       setConfirmedConsent(false);
       setSelectedLabels([]);
       setRandomCount("");
@@ -144,7 +154,7 @@ export default function BulkMessaging() {
       <div className="space-y-4 rounded-lg border bg-card p-4">
         <div>
           <h2 className="font-semibold">Nova campanha</h2>
-          <p className="mt-1 text-xs text-muted-foreground">A fila respeita o intervalo fixo escolhido entre 30 e 60 segundos. A cadência não garante que o WhatsApp não aplique restrições.</p>
+          <p className="mt-1 text-xs text-muted-foreground">A fila respeita o intervalo fixo escolhido entre 20 e 60 segundos. A cadência não garante que o WhatsApp não aplique restrições.</p>
         </div>
         <div className="flex gap-2">
           <Button type="button" variant={mode === "labels" ? "default" : "outline"} onClick={() => setMode("labels")}>
@@ -169,7 +179,7 @@ export default function BulkMessaging() {
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-muted-foreground">Intervalo fixo de 30 a 60 segundos, em passos de 10 segundos.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Intervalo fixo de 20 a 60 segundos, em passos de 10 segundos.</p>
         </div>
         {mode === "labels" ? (
           <div className="flex flex-wrap gap-3">
@@ -185,6 +195,9 @@ export default function BulkMessaging() {
               </label>
             ))}
             {!organization.data?.labels.length && <p className="text-sm text-muted-foreground">Crie etiquetas no menu Etiquetas.</p>}
+            {selectedLabels.includes(BIRTHDAY_LABEL_ID) && (
+              <p className="w-full text-xs text-muted-foreground">A etiqueta é atualizada diariamente e inclui apenas contatos aniversariantes que autorizaram campanhas.</p>
+            )}
           </div>
         ) : (
           <div className="max-w-xs">

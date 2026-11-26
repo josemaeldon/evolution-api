@@ -32,7 +32,22 @@ const formatJid = (remoteJid: string): string => remoteJid.split("@")[0];
 type ChatKind = "contacts" | "groups";
 type ContactFormMode = "contact" | "conversation" | "edit" | null;
 type ManagedContact = { remoteJid: string; pushName?: string; profilePicUrl?: string };
-type OrganizationLabels = { labels: { id: string; name: string; color: string }[]; contacts: { remoteJid: string; labels: { id: string; name: string; color: string }[] }[] };
+type OrganizationLabels = {
+  labels: { id: string; name: string; color: string }[];
+  contacts: {
+    id: string;
+    remoteJid: string;
+    pushName?: string;
+    customName?: string;
+    marketingOptIn: boolean;
+    birthDate?: string | null;
+    labels: { id: string; name: string; color: string }[];
+  }[];
+};
+const getLocalDate = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 function Chat() {
   const { t } = useTranslation();
@@ -60,7 +75,9 @@ function Chat() {
   const [contactFormMode, setContactFormMode] = useState<ContactFormMode>(null);
   const [contactNumber, setContactNumber] = useState("");
   const [contactName, setContactName] = useState("");
+  const [contactBirthDate, setContactBirthDate] = useState("");
   const [savingContact, setSavingContact] = useState(false);
+  const localDate = getLocalDate();
 
   const { data: chats } = useFindChats({ instanceName: instance?.name, refetchInterval: 5000 });
   serverUnreadRef.current = Object.fromEntries((chats || []).map((chat) => [chat.remoteJid, chat.unreadCount || 0]));
@@ -74,8 +91,8 @@ function Chat() {
     enabled: !!instance?.name,
   });
   const { data: organization } = useQuery<OrganizationLabels>({
-    queryKey: ["contactOrganization", instance?.id],
-    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization`)).data,
+    queryKey: ["contactOrganization", instance?.id, localDate],
+    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization?date=${localDate}`)).data,
     enabled: !!instance?.id,
   });
 
@@ -240,6 +257,7 @@ function Chat() {
     setContactFormMode(mode);
     setContactNumber(contact?.remoteJid.split("@")[0] || "");
     setContactName(contact?.pushName || "");
+    setContactBirthDate(organization?.contacts.find((saved) => saved.remoteJid === contact?.remoteJid)?.birthDate?.slice(0, 10) || "");
   };
 
   const saveContact = async () => {
@@ -260,6 +278,12 @@ function Chat() {
         { remoteJid: contactFormMode === "edit" ? `${digits}@s.whatsapp.net` : digits, name: contactName.trim() || digits },
         { headers: { apikey: instance.token } },
       );
+      if (contactFormMode !== "conversation" && response.data?.id) {
+        await saasApi.put(`/saas/instance/${instance.id}/contacts/${response.data.id}/organization`, {
+          birthDate: contactBirthDate || null,
+        });
+        queryClient.invalidateQueries({ queryKey: ["contactOrganization", instance.id] });
+      }
       setContactFormMode(null);
       refreshChats();
       if (contactFormMode === "conversation") handleChat(response.data.remoteJid);
@@ -350,6 +374,11 @@ function Chat() {
 
   const showSidebar = !remoteJid || isMD;
   const showChat = !!remoteJid;
+  const activeContact = organization?.contacts.find((contact) => contact.remoteJid === remoteJid);
+  const activeContactName = activeContact?.customName?.trim() || activeContact?.pushName?.trim() || selectedContact?.pushName || (remoteJid ? formatJid(remoteJid) : "");
+  const activeBirthDate = activeContact?.birthDate?.slice(0, 10) || "";
+  const activeBirthDateValue = activeBirthDate ? new Date(`${activeBirthDate}T00:00:00`).toLocaleDateString("pt-BR") : "";
+  const activeAge = activeBirthDate ? String(new Date().getFullYear() - Number(activeBirthDate.slice(0, 4))) : "";
 
   return (
     <div className="flex h-full w-full overflow-hidden rounded-lg border">
@@ -479,6 +508,14 @@ function Chat() {
             <Messages
               key={remoteJid}
               contacts={contactList}
+              contactVariables={{
+                name: activeContactName,
+                phone: remoteJid.split("@")[0],
+                birthDate: activeBirthDateValue,
+                anniversary: activeBirthDate ? `${activeBirthDate.slice(8, 10)}/${activeBirthDate.slice(5, 7)}` : "",
+                age: activeAge,
+                labels: activeContact?.labels.map((label) => label.name).join(", ") || "",
+              }}
               headerNameOverride={remoteJid.endsWith("@g.us") ? allChats.find((chat) => chat.remoteJid === remoteJid)?.pushName : selectedContact?.pushName}
               headerActions={
                 remoteJid.endsWith("@s.whatsapp.net") && (
@@ -654,6 +691,12 @@ function Chat() {
               </label>
               <Input id="contact-name" value={contactName} disabled={savingContact} onChange={(event) => setContactName(event.target.value)} maxLength={100} />
             </div>
+            {contactFormMode !== "conversation" && (
+              <div className="space-y-1">
+                <label htmlFor="contact-birth-date" className="text-sm font-medium">Data de nascimento (opcional)</label>
+                <Input id="contact-birth-date" type="date" value={contactBirthDate} disabled={savingContact} onChange={(event) => setContactBirthDate(event.target.value)} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={savingContact} onClick={() => setContactFormMode(null)}>

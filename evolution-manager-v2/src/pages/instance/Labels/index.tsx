@@ -5,12 +5,18 @@ import { useState } from "react";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
-import { useInstance } from "@/contexts/InstanceContext";
 import { saasApi } from "@/lib/queries/saas";
+import { useInstance } from "@/contexts/InstanceContext";
 
 type Label = { id: string; name: string; color: string };
-type Contact = { id: string; remoteJid: string; pushName?: string; customName?: string; marketingOptIn: boolean; labels: Label[] };
+type Contact = { id: string; remoteJid: string; pushName?: string; customName?: string; marketingOptIn: boolean; birthDate?: string | null; labels: Label[] };
 type Organization = { labels: Label[]; contacts: Contact[] };
+
+const BIRTHDAY_LABEL_ID = "__birthdays_today__";
+const getLocalDate = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 export default function ContactLabels() {
   const { instance } = useInstance();
@@ -21,10 +27,12 @@ export default function ContactLabels() {
   const [selectedLabelId, setSelectedLabelId] = useState("");
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [assigning, setAssigning] = useState(false);
+  const [updatingConsent, setUpdatingConsent] = useState(false);
+  const localDate = getLocalDate();
   const queryKey = ["contactOrganization", instance?.id];
   const { data, isLoading } = useQuery<Organization>({
-    queryKey,
-    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization`)).data,
+    queryKey: [...queryKey, localDate],
+    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization?date=${localDate}`)).data,
     enabled: !!instance?.id,
   });
   const labels = data?.labels || [];
@@ -53,15 +61,35 @@ export default function ContactLabels() {
       toast.error("Não foi possível excluir a etiqueta");
     }
   };
-  const updateContact = async (contact: Contact, patch: { labelIds?: string[]; marketingOptIn?: boolean }) => {
+  const updateContact = async (contact: Contact, patch: { labelIds?: string[]; marketingOptIn?: boolean; birthDate?: string | null }) => {
     if (!instance) return;
     const currentLabels = patch.labelIds || contact.labels.map((label) => label.id);
     const marketingOptIn = patch.marketingOptIn ?? contact.marketingOptIn;
     try {
-      await saasApi.put(`/saas/instance/${instance.id}/contacts/${contact.id}/organization`, { labelIds: currentLabels, marketingOptIn });
+      await saasApi.put(`/saas/instance/${instance.id}/contacts/${contact.id}/organization`, {
+        ...(patch.labelIds !== undefined ? { labelIds: currentLabels } : {}),
+        ...(patch.marketingOptIn !== undefined ? { marketingOptIn } : {}),
+        ...(patch.birthDate !== undefined ? { birthDate: patch.birthDate } : {}),
+      });
       await refresh();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || "Não foi possível atualizar o contato");
+    }
+  };
+  const updateAllConsent = async (marketingOptIn: boolean) => {
+    if (!instance || !contacts.length) return;
+    setUpdatingConsent(true);
+    try {
+      await saasApi.put(`/saas/instance/${instance.id}/contacts/marketing-opt-in`, {
+        contactIds: contacts.map((contact) => contact.id),
+        marketingOptIn,
+      });
+      await refresh();
+      toast.success(marketingOptIn ? "Todos os contatos visíveis foram autorizados" : "Autorização removida dos contatos visíveis");
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || "Não foi possível atualizar as autorizações");
+    } finally {
+      setUpdatingConsent(false);
     }
   };
   const assignSelectedContacts = async () => {
@@ -97,13 +125,17 @@ export default function ContactLabels() {
           </Button>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {labels.map((label) => (
+            {labels.map((label) => (
             <span key={label.id} className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm" style={{ borderColor: label.color, color: label.color }}>
               <Tag className="h-3.5 w-3.5" />
               {label.name}
-              <button type="button" aria-label={`Excluir etiqueta ${label.name}`} onClick={() => deleteLabel(label.id)} className="opacity-70 hover:opacity-100">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+                {label.id === BIRTHDAY_LABEL_ID ? (
+                  <span className="text-xs">automática</span>
+                ) : (
+                  <button type="button" aria-label={`Excluir etiqueta ${label.name}`} onClick={() => deleteLabel(label.id)} className="opacity-70 hover:opacity-100">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
             </span>
           ))}
           {!labels.length && <p className="text-sm text-muted-foreground">Nenhuma etiqueta criada.</p>}
@@ -127,7 +159,7 @@ export default function ContactLabels() {
             className="h-9 min-w-48 rounded-md border bg-background px-3 text-sm"
           >
             <option value="">Selecione uma etiqueta</option>
-            {labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}
+            {labels.filter((label) => label.id !== BIRTHDAY_LABEL_ID).map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}
           </select>
           <Button onClick={assignSelectedContacts} disabled={assigning || !selectedLabelId || !selectedContactIds.length}>
             {assigning ? "Atribuindo…" : `Atribuir${selectedContactIds.length ? ` (${selectedContactIds.length})` : ""}`}
@@ -137,7 +169,7 @@ export default function ContactLabels() {
           <p className="py-8 text-center text-sm text-muted-foreground">Carregando contatos…</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[920px] text-left text-sm">
               <thead>
                 <tr className="border-b text-xs text-muted-foreground">
                   <th className="p-2">
@@ -151,8 +183,21 @@ export default function ContactLabels() {
                     />
                   </th>
                   <th className="p-2">Contato</th>
+                  <th className="p-2">Data de nascimento</th>
                   <th className="p-2">Etiquetas</th>
-                  <th className="p-2">Autorização para campanhas</th>
+                  <th className="p-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        aria-label="Marcar todos os contatos visíveis para campanhas"
+                        title="Marcar ou desmarcar todos os contatos visíveis"
+                        checked={contacts.length > 0 && contacts.every((contact) => contact.marketingOptIn)}
+                        disabled={!contacts.length || updatingConsent}
+                        onChange={(event) => updateAllConsent(event.target.checked)}
+                      />
+                      <span>Autorização para campanhas</span>
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -169,6 +214,15 @@ export default function ContactLabels() {
                       />
                     </td>
                     <td className="p-2">
+                      <Input
+                        type="date"
+                        aria-label={`Data de nascimento de ${contactName(contact)}`}
+                        value={contact.birthDate?.slice(0, 10) || ""}
+                        onChange={(event) => updateContact(contact, { birthDate: event.target.value || null })}
+                        className="w-40"
+                      />
+                    </td>
+                    <td className="p-2">
                       <div className="font-medium">{contactName(contact)}</div>
                       <div className="text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</div>
                     </td>
@@ -179,6 +233,8 @@ export default function ContactLabels() {
                             <input
                               type="checkbox"
                               checked={contact.labels.some((assigned) => assigned.id === label.id)}
+                              disabled={label.id === BIRTHDAY_LABEL_ID}
+                              title={label.id === BIRTHDAY_LABEL_ID ? "Etiqueta automática, atualizada a cada dia" : undefined}
                               onChange={(event) =>
                                 updateContact(contact, {
                                   labelIds: event.target.checked
@@ -197,7 +253,7 @@ export default function ContactLabels() {
                     </td>
                     <td className="p-2">
                       <label className="inline-flex items-center gap-2">
-                        <input type="checkbox" checked={contact.marketingOptIn} onChange={(event) => updateContact(contact, { marketingOptIn: event.target.checked })} />
+                        <input type="checkbox" checked={contact.marketingOptIn} disabled={updatingConsent} onChange={(event) => updateContact(contact, { marketingOptIn: event.target.checked })} />
                         Autorizou receber mensagens
                       </label>
                     </td>

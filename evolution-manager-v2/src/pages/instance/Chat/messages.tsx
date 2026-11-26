@@ -1,5 +1,5 @@
 import "./style.css";
-import { Bold, Code2, Copy, Forward, Italic, List, ListOrdered, MoreHorizontal, Quote, Reply, Send, Strikethrough, Trash2, Upload, User, X } from "lucide-react";
+import { Bold, Braces, Code2, Copy, Forward, Italic, List, ListOrdered, MoreHorizontal, Quote, Reply, Send, Strikethrough, Trash2, Upload, User, X } from "lucide-react";
 import { ReactNode, RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
@@ -42,6 +42,7 @@ import { useChatPresence } from "./use-chat-presence";
 
 type MessagesProps = {
   contacts?: { remoteJid: string; pushName?: string; profilePicUrl?: string }[];
+  contactVariables?: { name: string; phone: string; birthDate: string; anniversary: string; age: string; labels: string };
   headerNameOverride?: string;
   headerActions?: ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
@@ -452,6 +453,13 @@ const ReactionBadges = ({ reactions }: { reactions?: MessageReaction[] }) => {
 const quotedMessage = (message: Message): QuotedMessage => ({ key: message.key, message: messageContent(message) });
 const PAGE_SIZE = 30;
 
+const quotedMessageId = (message: Message): string | null => {
+  const content = messageContent(message) as any;
+  const body = content.extendedTextMessage || content.imageMessage || content.videoMessage || content.audioMessage || content.documentMessage;
+  const context = message.contextInfo || content.contextInfo || body?.contextInfo;
+  return context?.stanzaId || context?.quotedMessage?.key?.id || context?.quotedMessage?.id || null;
+};
+
 const quotedContentPreview = (message: Message): string | null => {
   const content = messageContent(message);
   const body =
@@ -463,10 +471,18 @@ const quotedContentPreview = (message: Message): string | null => {
   return text || (quoted.imageMessage ? "Imagem" : quoted.videoMessage ? "Vídeo" : quoted.audioMessage ? "Áudio" : quoted.documentMessage ? "Documento" : "Mensagem");
 };
 
-const QuotedContent = ({ message }: { message: Message }) => {
+const QuotedContent = ({ message, onJump }: { message: Message; onJump: (messageId: string) => void }) => {
   const preview = quotedContentPreview(message);
   if (!preview) return null;
-  return <div className="mb-2 max-w-full overflow-hidden rounded border-l-2 border-current bg-black/10 px-2 py-1 text-xs opacity-80"><WhatsAppFormattedText text={preview} className="line-clamp-2" /></div>;
+  const targetId = quotedMessageId(message);
+  const content = <WhatsAppFormattedText text={preview} className="line-clamp-2" />;
+  return targetId ? (
+    <button type="button" onClick={() => onJump(targetId)} aria-label="Ir para a mensagem mencionada" className="mb-2 block w-full max-w-full overflow-hidden rounded border-l-2 border-current bg-black/10 px-2 py-1 text-left text-xs opacity-80 hover:opacity-100">
+      {content}
+    </button>
+  ) : (
+    <div className="mb-2 max-w-full overflow-hidden rounded border-l-2 border-current bg-black/10 px-2 py-1 text-xs opacity-80">{content}</div>
+  );
 };
 
 // Component to render different message types based on messageType
@@ -675,7 +691,7 @@ const withoutManagerSignature = (message: Message): Message => {
   return { ...message, message: content };
 };
 
-function Messages({ contacts = [], headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
+function Messages({ contacts = [], contactVariables, headerNameOverride, headerActions, textareaRef, handleTextareaChange, textareaHeight, lastMessageRef, scrollToBottom }: MessagesProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const locale = i18n.language;
@@ -711,6 +727,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const [reactingId, setReactingId] = useState("");
   const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
   const [olderPages, setOlderPages] = useState<Message[][]>([]);
+  const pendingJumpRef = useRef<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const loadingOlderRef = useRef(false);
   const readReceiptIdsRef = useRef(new Set<string>());
@@ -784,7 +801,8 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   // Handle sending text messages
   const sendTextMessage = async () => {
     if (!messageText.trim() || !remoteJid || !instance?.name || !instance?.token || isSending) return;
-    const clientRequestId = requestIdFor("text", messageText.trim(), replyTo?.key.id);
+    const personalizedText = personalizeMessage(messageText.trim());
+    const clientRequestId = requestIdFor("text", personalizedText, replyTo?.key.id);
 
     try {
       setIsSending(true);
@@ -793,7 +811,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         token: instance.token,
         data: {
           number: remoteJid,
-          text: messageText.trim(),
+          text: personalizedText,
           clientRequestId,
           signMessage: managerAccount?.signMessages === true,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
@@ -818,7 +836,8 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   // Handle sending media messages
   const sendMediaMessage = async () => {
     if (!selectedMedia || preparedMedia?.file !== selectedMedia || !remoteJid || !instance?.name || !instance?.token || isSending) return;
-    const clientRequestId = requestIdFor("media", selectedMedia, `${messageText.trim()}\0${replyTo?.key.id || ""}`);
+    const personalizedCaption = personalizeMessage(messageText.trim());
+    const clientRequestId = requestIdFor("media", selectedMedia, `${personalizedCaption}\0${replyTo?.key.id || ""}`);
 
     try {
       setIsSending(true);
@@ -836,7 +855,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
           mediaMessage: {
             mediatype: ["audio", "video", "image"].includes(selectedMedia.type.split("/")[0]) ? (selectedMedia.type.split("/")[0] as "audio" | "video" | "image") : "document",
             mimetype: selectedMedia.type || "application/octet-stream",
-            caption: messageText.trim(),
+            caption: personalizedCaption,
             media: preparedMedia.base64,
             fileName: selectedMedia.name,
           },
@@ -904,6 +923,33 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       textarea?.setSelectionRange(start + emoji.length, start + emoji.length);
       handleTextareaChange();
     });
+  };
+
+  const insertVariable = (token: string) => {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? messageText.length;
+    const end = textarea?.selectionEnd ?? start;
+    const next = `${messageText.slice(0, start)}${token}${messageText.slice(end)}`;
+    setMessageText(next);
+    updateTyping(next);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(start + token.length, start + token.length);
+      handleTextareaChange();
+    });
+  };
+
+  const personalizeMessage = (text: string) => {
+    const values: Record<string, string> = {
+      nome: contactVariables?.name || remoteJid?.split("@")[0] || "",
+      primeiro_nome: (contactVariables?.name || remoteJid?.split("@")[0] || "").split(/\s+/)[0] || "",
+      telefone: contactVariables?.phone || remoteJid?.split("@")[0] || "",
+      data_nascimento: contactVariables?.birthDate || "",
+      aniversario: contactVariables?.anniversary || "",
+      idade: contactVariables?.age || "",
+      etiquetas: contactVariables?.labels || "",
+    };
+    return text.replace(/{{\s*(nome|primeiro_nome|telefone|data_nascimento|aniversario|idade|etiquetas)\s*}}/gi, (_, key: string) => values[key.toLowerCase()] || "");
   };
 
   const applyWhatsAppFormatting = (format: "bold" | "italic" | "strike" | "monospace" | "quote" | "bullet" | "numbered") => {
@@ -1028,6 +1074,45 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
     return Array.from(messageMap.values()).filter((message: Message) => !removedIds.has(message.key.id) && !message.key.deleted && message.status !== "DELETED");
   }, [messages, olderPages, realtimeMessages, removedIds]);
+
+  const jumpToQuotedMessage = async (messageId: string) => {
+    const findTarget = () => Array.from(document.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find((element) => element.dataset.messageId === messageId);
+    if (!findTarget() && instance?.name && remoteJid) {
+      const lastPage = messagePage?.pages || 1;
+      for (let pageNumber = olderPages.length + 2; pageNumber <= lastPage; pageNumber += 1) {
+        try {
+          const page = await fetchMessagesPage({ instanceName: instance.name, remoteJid, offset: PAGE_SIZE, page: pageNumber });
+          setOlderPages((current) => current.some((existing) => existing[0]?.key.id === page.records[0]?.key.id) ? current : [...current, page.records]);
+          if (page.records.some((record: Message) => record.key.id === messageId)) break;
+          if (!page.records.length) break;
+        } catch {
+          toast.error("Não foi possível localizar a mensagem mencionada");
+          return;
+        }
+      }
+    }
+    pendingJumpRef.current = messageId;
+    const target = findTarget();
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("message-jump-highlight");
+      window.setTimeout(() => target.classList.remove("message-jump-highlight"), 1800);
+      pendingJumpRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const messageId = pendingJumpRef.current;
+    if (!messageId || !allMessages.some((message) => message.key.id === messageId)) return;
+    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find((element) => element.dataset.messageId === messageId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("message-jump-highlight");
+    window.setTimeout(() => target.classList.remove("message-jump-highlight"), 1800);
+    pendingJumpRef.current = null;
+  }, [allMessages]);
 
   useEffect(() => {
     readReceiptIdsRef.current.clear();
@@ -1400,7 +1485,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   );
 
   const renderBubbleRight = (message: Message) => (
-    <div key={message.key.id} className="mb-4 flex justify-end">
+    <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-end">
       <div className="flex max-w-[85%] items-start gap-1">
         <ChatEmojiPicker
           label="Reagir à mensagem"
@@ -1412,7 +1497,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
         <div className="min-w-0">
           {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}:</div>}
           <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
-            <QuotedContent message={message} />
+            <QuotedContent message={message} onJump={jumpToQuotedMessage} />
             <DeferredMessageContent message={withoutManagerSignature(message)} instanceName={instance?.name} token={instance?.token} />
           </div>
           <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
@@ -1432,7 +1517,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     const senderName = message.pushName || (participant ? participant.split("@")[0] : "");
 
     return (
-      <div key={message.key.id} className="mb-4 flex justify-start">
+      <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-start">
         <div className="flex max-w-[85%] items-start gap-1">
           <div className="min-w-0">
             {isGroup && senderName && (
@@ -1441,7 +1526,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
               </div>
             )}
             <div className="rounded-lg border bg-muted px-3 py-2 text-sm text-foreground">
-              <QuotedContent message={message} />
+              <QuotedContent message={message} onJump={jumpToQuotedMessage} />
               <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
             </div>
             <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
@@ -1619,6 +1704,28 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
                     <DropdownMenuItem onClick={() => applyWhatsAppFormatting("quote")}><Quote className="mr-2 h-4 w-4" /> Citação</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => applyWhatsAppFormatting("bullet")}><List className="mr-2 h-4 w-4" /> Lista com marcadores</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => applyWhatsAppFormatting("numbered")}><ListOrdered className="mr-2 h-4 w-4" /> Lista numerada</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {!recordingActive && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="icon" variant="ghost" className="h-9 w-9 flex-shrink-0" aria-label="Inserir variável do contato" title="Inserir variável do contato" disabled={isSending}>
+                      <Braces className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top">
+                    {[
+                      ["Nome", "{{nome}}"],
+                      ["Primeiro nome", "{{primeiro_nome}}"],
+                      ["Telefone", "{{telefone}}"],
+                      ["Data de nascimento", "{{data_nascimento}}"],
+                      ["Aniversário", "{{aniversario}}"],
+                      ["Idade", "{{idade}}"],
+                      ["Etiquetas", "{{etiquetas}}"],
+                    ].map(([label, token]) => (
+                      <DropdownMenuItem key={token} onClick={() => insertVariable(token)}>{label} <span className="ml-auto pl-4 font-mono text-xs text-muted-foreground">{token}</span></DropdownMenuItem>
+                    ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}

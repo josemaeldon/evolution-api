@@ -23,6 +23,16 @@
   30% { transform: translateY(-3px); opacity: 0.9; }
 }
 
+.message-jump-highlight > div {
+  animation: message-jump-highlight 1.8s ease-out;
+}
+
+@keyframes message-jump-highlight {
+  0%, 35% { outline: 3px solid hsl(var(--primary)); outline-offset: 3px; }
+  100% { outline-color: transparent; outline-offset: 8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-typing-bubble span { animation: none; }
+  .message-jump-highlight > div { animation: none; }
 }
