@@ -233,6 +233,18 @@ router.patch('/companies/:companyId', async (req, res) => {
   return res.json(updated);
 });
 
+router.delete('/companies/:companyId', async (req, res) => {
+  if (getManagerPrincipal(req).role !== 'superadmin') return res.status(403).json(fail('Acesso negado'));
+  const company = await prismaRepository.managerCompany.findUnique({ where: { id: req.params.companyId } });
+  if (!company) return res.status(404).json(fail('Empresa não encontrada'));
+
+  // Keep legacy media readable after the company's storage settings are removed.
+  await pinLegacyMediaStorageTarget(prismaRepository, company.id, resolveCompanyStorageTarget(company));
+  // The schema sets companyId to null on instances and cascades users and sessions.
+  await prismaRepository.managerCompany.delete({ where: { id: company.id } });
+  return res.status(204).send();
+});
+
 router.get('/storage', async (req, res) => {
   const principal = getManagerPrincipal(req);
   const companyId = principal.companyId;

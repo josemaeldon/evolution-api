@@ -40,6 +40,7 @@ export default function Companies() {
   const [busy, setBusy] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagerUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ManagerUser | null>(null);
+  const [deleteCompanyTarget, setDeleteCompanyTarget] = useState<ManagerCompany | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState<"admin" | "user">("user");
@@ -87,6 +88,24 @@ export default function Companies() {
       setDeleteTarget(null);
       await refresh();
       toast.success("Usuário excluído");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteCompany = async () => {
+    if (!deleteCompanyTarget || busy) return;
+    setBusy(true);
+    try {
+      await saasApi.delete(`/saas/companies/${deleteCompanyTarget.id}`);
+      setSelectedId((current) =>
+        current === deleteCompanyTarget.id ? companies.find((company) => company.id !== deleteCompanyTarget.id)?.id || "" : current,
+      );
+      setDeleteCompanyTarget(null);
+      await refresh();
+      toast.success("Empresa excluída");
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
@@ -251,6 +270,9 @@ export default function Companies() {
                     onClick={() => run(() => saasApi.patch(`/saas/companies/${selected.id}`, { active: !selected.active }), selected.active ? "Empresa desativada" : "Empresa ativada")}>
                     {selected.active ? "Desativar" : "Ativar"}
                   </Button>
+                  <Button disabled={busy} variant="destructive" onClick={() => setDeleteCompanyTarget(selected)}>
+                    Excluir empresa
+                  </Button>
                 </div>
               )}
               <div className="space-y-2 rounded-md border p-3 text-sm" aria-label="Uso de armazenamento">
@@ -368,6 +390,28 @@ export default function Companies() {
           </div>
         )}
       </div>
+      <Dialog
+        open={!!deleteCompanyTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteCompanyTarget(null);
+        }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir empresa</DialogTitle>
+            <DialogDescription>
+              Excluir {deleteCompanyTarget?.name} e seus {deleteCompanyTarget?._count.users} usuários? As sessões serão encerradas e as {deleteCompanyTarget?._count.instances} instâncias ficarão sem empresa. Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteCompanyTarget(null)}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="destructive" disabled={busy} onClick={deleteCompany}>
+              Excluir empresa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!editingUser}
         onOpenChange={(open) => {
