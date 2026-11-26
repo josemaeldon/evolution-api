@@ -14,7 +14,7 @@ type Campaign = { id: string; status: string; message: string; intervalSeconds: 
 type Organization = { labels: Label[] };
 
 const statusLabel: Record<string, string> = { queued: "Na fila", processing: "Em andamento", paused: "Pausada", completed: "Concluída" };
-const intervalOptions = [30, 60, 120, 300, 600, 900, 1800, 3600];
+const intervalOptions = [30, 40, 50, 60];
 const messageVariables = [
   { token: "{{nome}}", label: "Nome completo", example: "Maria Silva" },
   { token: "{{primeiro_nome}}", label: "Primeiro nome", example: "Maria" },
@@ -99,7 +99,7 @@ export default function BulkMessaging() {
       <div className="space-y-4 rounded-lg border bg-card p-4">
         <div>
           <h2 className="font-semibold">Nova campanha</h2>
-          <p className="mt-1 text-xs text-muted-foreground">A fila respeita o intervalo fixo escolhido entre 30 segundos e 1 hora. A cadência não garante que o WhatsApp não aplique restrições.</p>
+          <p className="mt-1 text-xs text-muted-foreground">A fila respeita o intervalo fixo escolhido entre 30 e 60 segundos. A cadência não garante que o WhatsApp não aplique restrições.</p>
         </div>
         <div className="flex gap-2">
           <Button type="button" variant={mode === "labels" ? "default" : "outline"} onClick={() => setMode("labels")}>
@@ -124,7 +124,7 @@ export default function BulkMessaging() {
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-muted-foreground">Intervalo fixo de 30 segundos a 1 hora, em passos de 30 segundos.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Intervalo fixo de 30 a 60 segundos, em passos de 10 segundos.</p>
         </div>
         {mode === "labels" ? (
           <div className="flex flex-wrap gap-3">

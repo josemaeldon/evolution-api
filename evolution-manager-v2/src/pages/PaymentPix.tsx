@@ -1,9 +1,8 @@
 import axios from "axios";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { useParams } from "react-router-dom";
 
-import { Button } from "@evoapi/design-system/button";
 import { useTheme } from "@/components/theme-provider";
 import { CLOUD_BR_CHAT_LOGO, CLOUD_BR_CHAT_LOGO_DARK } from "@/lib/branding";
 
@@ -27,8 +26,6 @@ export default function PaymentPix() {
   const { token, instanceId, id } = useParams<{ token?: string; instanceId?: string; id?: string }>();
   const [charge, setCharge] = useState<Charge | null>(null);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
-  const codeRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const path = instanceId && id ? `/pix/${encodeURIComponent(instanceId)}/${encodeURIComponent(id)}` : token ? `/pix/${encodeURIComponent(token)}` : null;
@@ -52,22 +49,6 @@ export default function PaymentPix() {
       window.clearInterval(timer);
     };
   }, [token, instanceId, id]);
-
-  const copy = async () => {
-    if (!charge) return;
-    try {
-      await navigator.clipboard.writeText(charge.code);
-      setCopied(true);
-    } catch {
-      codeRef.current?.focus();
-      codeRef.current?.select();
-      if (document.execCommand("copy")) {
-        setCopied(true);
-      } else {
-        setError("Selecione o código abaixo para copiar.");
-      }
-    }
-  };
 
   return (
     <main className="h-[100dvh] overflow-y-auto overscroll-y-contain bg-muted/30 px-3 py-5 text-foreground sm:px-6 sm:py-10">
@@ -113,23 +94,6 @@ export default function PaymentPix() {
                 <div className="mx-auto mt-4 w-full max-w-[264px] rounded-2xl border bg-white p-4 shadow-sm">
                   <QRCode value={charge.code} size={232} style={{ height: "auto", maxWidth: "100%", width: "100%" }} />
                 </div>
-              </section>
-
-              <section className="min-w-0 space-y-3" aria-label="Pix copia e cola">
-                <label htmlFor="pix-code" className="block text-sm font-medium">
-                  Ou copie o código Pix
-                </label>
-                <textarea
-                  ref={codeRef}
-                  id="pix-code"
-                  readOnly
-                  value={charge.code}
-                  onFocus={(event) => event.target.select()}
-                  className="h-24 w-full min-w-0 resize-none rounded-xl border bg-background p-3 text-xs leading-relaxed break-all"
-                />
-                <Button type="button" className="w-full" onClick={copy}>
-                  {copied ? "Código copiado" : "Copiar código Pix"}
-                </Button>
               </section>
 
               <div className="min-w-0 border-t pt-5 text-sm">

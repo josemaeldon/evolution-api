@@ -783,8 +783,8 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     labelIds.length > 50 ||
     !Number.isInteger(intervalSeconds) ||
     intervalSeconds < 30 ||
-    intervalSeconds > 3600 ||
-    intervalSeconds % 30 !== 0 ||
+    intervalSeconds > 60 ||
+    intervalSeconds % 10 !== 0 ||
     (!labelIds.length && !randomCount) ||
     (randomCount && (!Number.isInteger(randomCount) || randomCount < 1 || randomCount > 500))
   ) {
