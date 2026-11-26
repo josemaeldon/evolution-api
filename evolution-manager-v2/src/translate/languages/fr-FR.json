@@ -1557,6 +1557,11 @@
     }
   },
   "chat": {
+    "media": {
+      "attach": "Joindre un fichier",
+      "document": "Documents",
+      "photosAndVideos": "Photos et vidéos"
+    },
     "search": "Rechercher des conversations...",
     "back": "Retour",
     "tabs": {

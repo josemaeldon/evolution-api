@@ -167,7 +167,7 @@
   "chat": {
     "media": {
       "attach": "Attach file",
-      "document": "Document",
+      "document": "Documents",
       "photosAndVideos": "Photos and Videos",
       "errors": {
         "audioSize": "Audio file size must be less than 16 MB",
