@@ -4,6 +4,8 @@ import { getToken, TOKEN_ID } from "@/lib/queries/token";
 type SocketEntry = { socket: Socket; users: number };
 const activeSockets = new Map<string, SocketEntry>();
 const unavailableSockets = new Set<string>();
+const managerTicketRequests = new Map<string, Promise<string>>();
+const managerTicketRetries = new Set<string>();
 
 export interface WebSocketConnection {
   _socket?: Socket;
@@ -16,23 +18,47 @@ export interface WebSocketConnection {
 export const connectSocket = (serverUrl: string, token?: string, instanceName?: string): WebSocketConnection => {
   const apiKey = token || getToken(TOKEN_ID.INSTANCE_TOKEN) || getToken(TOKEN_ID.TOKEN) || "";
   const companyMode = localStorage.getItem("managerSaas") === "company";
+  const managerSessionOnly = companyMode && apiKey === "manager-session";
   // Company manager sessions authenticate with an HttpOnly cookie scoped to
   // the manager origin. Use that origin so the browser includes the cookie.
   const socketUrl = companyMode ? window.location.origin : serverUrl;
   const key = `${socketUrl}\0${apiKey}\0${instanceName || ""}`;
+  let socket: Socket;
+  const prepareConnection = managerSessionOnly ? async () => {
+    let request = managerTicketRequests.get(key);
+    if (!request) {
+      request = fetch(`${socketUrl}/saas/socket-ticket?instanceName=${encodeURIComponent(instanceName || "")}`, {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`Manager socket ticket request failed (${response.status})`);
+          const body = (await response.json()) as { ticket?: string };
+          if (!body.ticket) throw new Error("Manager socket ticket missing");
+          return body.ticket;
+        })
+        .finally(() => managerTicketRequests.delete(key));
+      managerTicketRequests.set(key, request);
+    }
+    const ticket = await request;
+    socket.io.opts.query = { instanceName, ticket };
+  } : undefined;
   const existing = activeSockets.get(key);
   if (existing) {
     existing.users += 1;
-    return createSocketWrapper(existing.socket, key);
+    socket = existing.socket;
+    return createSocketWrapper(socket, key, prepareConnection);
   }
 
   // Create new socket connection
-  const socket = io(socketUrl, {
+  socket = io(socketUrl, {
     // HTTP long polling also works behind proxies that do not forward WebSocket upgrades.
     transports: ["polling"],
     // Keep the manager session as the primary auth, and include the scoped
     // instance key as a fallback when a reverse proxy drops session cookies.
-    query: companyMode ? { instanceName, apikey: apiKey } : { apikey: apiKey },
+    query: companyMode
+      ? { instanceName, ...(!managerSessionOnly && apiKey ? { apikey: apiKey } : {}) }
+      : { apikey: apiKey },
     withCredentials: true,
     autoConnect: false,
     reconnection: true,
@@ -47,6 +73,7 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
   // Set up connection event handlers
   socket.on("connect", () => {
     console.log(`✅ WebSocket connected to ${socketUrl}`);
+    if (prepareConnection) void prepareConnection().catch((error) => console.error("Could not refresh manager socket ticket:", error));
   });
 
   socket.on("disconnect", (reason) => {
@@ -57,6 +84,25 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
     const context = (error as Error & { context?: { status?: number; target?: { status?: number } } }).context;
     const status = context?.status ?? context?.target?.status;
     if (status === 404 || status === 403 || status === 401) {
+      if (managerSessionOnly && status === 403 && !managerTicketRetries.has(key)) {
+        managerTicketRetries.add(key);
+        socket.io.opts.reconnection = false;
+        socket.disconnect();
+        void prepareConnection!()
+          .then(() => {
+            managerTicketRetries.delete(key);
+            if (activeSockets.get(key)?.socket === socket) {
+              socket.io.opts.reconnection = true;
+              socket.connect();
+            }
+          })
+          .catch((ticketError) => {
+            managerTicketRetries.delete(key);
+            unavailableSockets.add(key);
+            console.error("Could not refresh manager socket ticket after rejection:", ticketError);
+          });
+        return;
+      }
       // A disabled Socket.IO endpoint or rejected key will not recover by retrying.
       unavailableSockets.add(key);
       socket.io.opts.reconnection = false;
@@ -75,7 +121,7 @@ export const connectSocket = (serverUrl: string, token?: string, instanceName?: 
     console.error(`🔄❌ WebSocket reconnection error to ${socketUrl}:`, error);
   });
 
-  return createSocketWrapper(socket, key);
+  return createSocketWrapper(socket, key, prepareConnection);
 };
 
 export const disconnectSocket = (connection: WebSocketConnection | Socket): void => {
@@ -92,7 +138,7 @@ export const disconnectSocket = (connection: WebSocketConnection | Socket): void
 };
 
 // Create a wrapper that provides a consistent interface
-const createSocketWrapper = (socket: Socket, key: string): WebSocketConnection => {
+const createSocketWrapper = (socket: Socket, key: string, prepareConnection?: () => Promise<void>): WebSocketConnection => {
   const listeners = new Map<string, Set<(data: any) => void>>();
   return {
     _socket: socket,
@@ -106,7 +152,18 @@ const createSocketWrapper = (socket: Socket, key: string): WebSocketConnection =
       listeners.delete(event);
     },
     connect: () => {
-      if (!unavailableSockets.has(key) && activeSockets.get(key)?.socket === socket && !socket.connected) socket.connect();
+      if (unavailableSockets.has(key) || activeSockets.get(key)?.socket !== socket || socket.connected) return;
+      if (prepareConnection) {
+        void prepareConnection()
+          .then(() => {
+            if (!unavailableSockets.has(key) && activeSockets.get(key)?.socket === socket && !socket.connected) socket.connect();
+          })
+          .catch((error) => {
+            console.error("Could not authorize manager Socket.IO connection:", error);
+          });
+        return;
+      }
+      socket.connect();
     },
     disconnect: () => {
       socket.disconnect();

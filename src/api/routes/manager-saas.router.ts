@@ -18,6 +18,7 @@ import {
   setManagerPrincipal,
   setSessionCookie,
 } from '@api/services/manager-saas.service';
+import { createManagerSocketTicket } from '@api/services/manager-socket-ticket.service';
 import {
   getCompanyStorageTargetById,
   getCompanyStorageUsage,
@@ -187,6 +188,22 @@ router.use(async (req, res, next) => {
   if (!principal) return res.status(401).json(fail('Sessão expirada'));
   setManagerPrincipal(req, principal);
   next();
+});
+
+router.get('/socket-ticket', async (req, res) => {
+  const principal = getManagerPrincipal(req);
+  const instanceName = typeof req.query.instanceName === 'string' ? req.query.instanceName : '';
+  if (!principal?.companyId || !principal.userId || !instanceName) return res.status(403).json(fail('Acesso negado'));
+
+  const instance = await prismaRepository.instance.findFirst({
+    where: { name: instanceName, companyId: principal.companyId },
+    select: { id: true },
+  });
+  if (!instance) return res.status(403).json(fail('Instância fora da sua empresa'));
+
+  return res.json({
+    ticket: createManagerSocketTicket({ companyId: principal.companyId, instanceName }, principal.userId),
+  });
 });
 
 router.get('/companies', async (req, res) => {

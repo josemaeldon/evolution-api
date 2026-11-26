@@ -1,5 +1,6 @@
 import { PrismaRepository } from '@api/repository/repository.service';
 import { sessionPrincipal } from '@api/services/manager-saas.service';
+import { verifyManagerSocketTicket } from '@api/services/manager-socket-ticket.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { Auth, configService, Cors, Log, Websocket } from '@config/env.config';
 import { Logger } from '@config/logger.config';
@@ -33,8 +34,18 @@ export class WebsocketController extends EventController implements EventControl
           const params = new URLSearchParams(url.search);
 
           const apiKey = params.get('apikey') || (req.headers.apikey as string);
+          const ticket = verifyManagerSocketTicket(params.get('ticket') || '');
           const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
           if (apiKey && apiKey === globalToken) return callback(null, true);
+
+          if (ticket) {
+            const owned = await this.prismaRepository.instance.findFirst({
+              where: { name: ticket.instanceName, companyId: ticket.companyId },
+              select: { id: true },
+            });
+            if (!owned) return callback('Instance not allowed', false);
+            return callback(null, true);
+          }
 
           const manager = await sessionPrincipal(req as Request);
           if (manager?.companyId) {
@@ -77,9 +88,19 @@ export class WebsocketController extends EventController implements EventControl
     this.socket.use(async (socket, next) => {
       try {
         const apiKey = String(socket.handshake.query.apikey || socket.handshake.headers.apikey || '');
+        const ticket = verifyManagerSocketTicket(String(socket.handshake.query.ticket || ''));
         const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
         if (apiKey && apiKey === globalToken) {
           socket.data.legacyGlobal = true;
+          return next();
+        }
+        if (ticket) {
+          const owned = await this.prismaRepository.instance.findFirst({
+            where: { name: ticket.instanceName, companyId: ticket.companyId },
+            select: { id: true },
+          });
+          if (!owned) return next(new Error('Instance not allowed'));
+          socket.data.managerInstanceName = ticket.instanceName;
           return next();
         }
         const principal = await sessionPrincipal(socket.request as Request);
