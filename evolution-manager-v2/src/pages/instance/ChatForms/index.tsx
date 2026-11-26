@@ -312,7 +312,7 @@ export default function ChatForms() {
       </div>
 
       <Dialog open={creating} onOpenChange={(open) => { setCreating(open); if (!open) setEditingFormId(null); }}>
-        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingFormId ? "Editar formulário" : "Criar formulário"}</DialogTitle>
             <DialogDescription>{editingFormId ? "Atualize as informações e os campos do formulário." : "Defina as perguntas que o contato deverá responder."}</DialogDescription>

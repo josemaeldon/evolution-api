@@ -183,7 +183,7 @@ export function TestInteractiveModal({ instance, open, onOpenChange }: TestInter
 
   return (
     <Dialog open={open} onOpenChange={(o) => !sending && onOpenChange(o)}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("testInteractive.title")}</DialogTitle>
         </DialogHeader>

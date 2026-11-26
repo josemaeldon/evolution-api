@@ -100,7 +100,7 @@ function ExternalLinks() {
         <span>Sobre o CloudBR Chat</span>
       </Button>
       <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <img src={logoSrc} alt="CloudBR Chat" className="mb-2 h-10 w-auto self-start" />
             <div className="flex flex-wrap items-center gap-2">

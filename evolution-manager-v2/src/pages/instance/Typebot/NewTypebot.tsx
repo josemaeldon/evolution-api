@@ -72,7 +72,7 @@ function NewTypebot({ resetTable }: { resetTable: () => void }) {
           <span className="hidden sm:inline">{t("typebot.button.create")}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="overflow-y-auto sm:max-h-[600px] sm:max-w-[740px]">
+      <DialogContent className="overflow-y-auto sm:max-h-[min(600px,calc(100dvh-2rem))] sm:max-w-[740px]">
         <DialogHeader>
           <DialogTitle>{t("typebot.form.title")}</DialogTitle>
         </DialogHeader>

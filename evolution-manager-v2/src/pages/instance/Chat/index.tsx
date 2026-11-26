@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@evoapi/design-system/avata
 import { Button } from "@evoapi/design-system/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, ContactRound, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -538,7 +538,7 @@ function Chat() {
           setContactsOpen(open);
           if (!open) setContactSearch("");
         }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+        <DialogContent className="flex max-h-[min(85dvh,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-xl">
           <DialogTitle>Gerenciar contatos</DialogTitle>
           <DialogDescription>Contatos salvos nesta instância.</DialogDescription>
           <Button type="button" size="sm" className="w-fit" onClick={() => openContactForm("contact")}>
@@ -555,10 +555,10 @@ function Chat() {
               className="pl-9"
             />
           </div>
-          <div className="space-y-2">
+          <div className="min-h-0 space-y-2 overflow-y-auto pr-1" aria-label="Contatos salvos">
             {managedContacts.length === 0 && <p className="text-sm text-muted-foreground">Nenhum contato encontrado.</p>}
             {managedContacts.map((contact) => (
-              <div key={contact.remoteJid} className="flex items-center gap-2 rounded-md border p-2">
+              <div key={contact.remoteJid} className="flex flex-wrap items-center gap-2 rounded-md border p-2 sm:flex-nowrap">
                 <Avatar className="h-9 w-9 flex-shrink-0">
                   <AvatarImage src={contact.profilePicUrl} alt={contact.pushName || formatJid(contact.remoteJid)} />
                   <AvatarFallback>
@@ -572,10 +572,10 @@ function Chat() {
                     setContactsOpen(false);
                     handleChat(contact.remoteJid);
                   }}>
-                  <span className="block truncate text-sm font-medium">{contact.pushName || formatJid(contact.remoteJid)}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{formatJid(contact.remoteJid)}</span>
+                  <span className="block text-sm font-medium break-all">{contact.pushName || formatJid(contact.remoteJid)}</span>
+                  <span className="block text-xs text-muted-foreground break-all">{formatJid(contact.remoteJid)}</span>
                 </button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => openContactForm("edit", contact)}>
+                <Button type="button" size="sm" variant="ghost" className="ml-auto sm:ml-0" onClick={() => openContactForm("edit", contact)}>
                   Editar
                 </Button>
                 <Button type="button" size="icon" variant="ghost" aria-label={`Excluir ${contact.pushName || contact.remoteJid}`} onClick={() => deleteContact(contact.remoteJid)}>
@@ -616,14 +616,14 @@ function Chat() {
               <Input id="contact-name" value={contactName} disabled={savingContact} onChange={(event) => setContactName(event.target.value)} maxLength={100} />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" disabled={savingContact} onClick={() => setContactFormMode(null)}>
               Cancelar
             </Button>
             <Button type="button" disabled={savingContact} onClick={saveContact}>
               {contactFormMode === "conversation" ? "Abrir conversa" : "Salvar"}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

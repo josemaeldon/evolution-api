@@ -293,12 +293,12 @@ function SessionsN8n({ n8nId }: { n8nId?: string }) {
           <span className="hidden md:inline">{t("n8n.sessions.label")}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-7xl h-[85vh] flex flex-col overflow-hidden">
+      <DialogContent className="flex h-[85dvh] max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-7xl">
         <DialogHeader>
           <DialogTitle>{t("n8n.sessions.label")}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto pr-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-auto pr-2">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">{t("sessions.filters.title")}</CardTitle>

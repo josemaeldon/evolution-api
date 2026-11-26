@@ -29,7 +29,7 @@ function NewChat({ isOpen, setIsOpen }: NewChatProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("chat.newChat.title")}</DialogTitle>
           <DialogDescription>{t("chat.newChat.description")}</DialogDescription>

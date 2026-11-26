@@ -148,7 +148,7 @@ function DefaultSettingsOpenai() {
           <span className="hidden md:inline">{t("openai.defaultSettings")}</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="overflow-y-auto sm:max-h-[600px] sm:max-w-[740px]" onCloseAutoFocus={onReset}>
+      <DialogContent className="overflow-y-auto sm:max-h-[min(600px,calc(100dvh-2rem))] sm:max-w-[740px]" onCloseAutoFocus={onReset}>
         <DialogHeader>
           <DialogTitle>{t("openai.defaultSettings")}</DialogTitle>
         </DialogHeader>
