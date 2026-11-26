@@ -1,6 +1,6 @@
 import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Pause, Play, Send, X } from "lucide-react";
+import { ImagePlus, Pause, Play, Send, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -109,6 +109,16 @@ export default function BulkMessaging() {
       invalidate();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || "Não foi possível atualizar a campanha");
+    }
+  };
+  const deleteCampaign = async (campaignId: string) => {
+    if (!instance || !window.confirm("Excluir esta campanha e os destinatários associados? Esta ação não pode ser desfeita.")) return;
+    try {
+      await saasApi.delete(`/saas/instance/${instance.id}/campaigns/${campaignId}`);
+      invalidate();
+      toast.success("Campanha excluída");
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || "Não foi possível excluir a campanha");
     }
   };
   const insertVariable = (token: string) => {
@@ -263,7 +273,9 @@ export default function BulkMessaging() {
           <input type="checkbox" checked={confirmedConsent} onChange={(event) => setConfirmedConsent(event.target.checked)} className="mt-1" />
           <span>Confirmo que os contatos selecionados autorizaram receber esta mensagem. Contatos sem autorização são excluídos automaticamente.</span>
         </label>
-        <Button onClick={createCampaign} disabled={(!message.trim() && !image) || !confirmedConsent || (mode === "labels" ? !selectedLabels.length : !Number(randomCount) || Number(randomCount) > 500)}>
+        <Button
+          onClick={createCampaign}
+          disabled={(!message.trim() && !image) || !confirmedConsent || (mode === "labels" ? !selectedLabels.length : !Number(randomCount) || Number(randomCount) > 500)}>
           <Send className="mr-2 h-4 w-4" />
           Adicionar à fila
         </Button>
@@ -295,6 +307,16 @@ export default function BulkMessaging() {
                     {campaign.status === "paused" ? "Retomar" : "Pausar"}
                   </Button>
                 )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Excluir campanha de ${new Date(campaign.createdAt).toLocaleString("pt-BR")}`}
+                  title={campaign.status === "processing" ? "Pause a campanha antes de excluí-la" : "Excluir campanha"}
+                  disabled={campaign.status === "processing"}
+                  onClick={() => deleteCampaign(campaign.id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </article>
             );
           })}

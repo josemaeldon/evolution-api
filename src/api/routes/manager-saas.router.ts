@@ -651,10 +651,11 @@ router.get('/instance/:instanceId/organization', async (req, res) => {
         id: true,
         remoteJid: true,
         pushName: true,
+        customName: true,
         marketingOptIn: true,
         ManagerLabels: { select: { Label: { select: { id: true, name: true, color: true } } } },
       },
-      orderBy: { pushName: 'asc' },
+      orderBy: [{ customName: 'asc' }, { pushName: 'asc' }],
       take: 2000,
     }),
   ]);
@@ -864,6 +865,26 @@ router.patch('/instance/:instanceId/campaigns/:campaignId', async (req, res) => 
     data: { status },
   });
   return campaign.count ? res.json({ success: true }) : res.status(404).json(fail('Campanha não encontrada'));
+});
+
+router.delete('/instance/:instanceId/campaigns/:campaignId', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const campaign = await prismaRepository.bulkCampaign.findFirst({
+    where: { id: req.params.campaignId, instanceId: instance.id },
+    select: { id: true, status: true },
+  });
+  if (!campaign) return res.status(404).json(fail('Campanha não encontrada'));
+  if (campaign.status === 'processing') return res.status(409).json(fail('Pause a campanha antes de excluí-la'));
+  const sending = await prismaRepository.bulkCampaignRecipient.count({
+    where: { campaignId: campaign.id, status: 'sending' },
+  });
+  if (sending) return res.status(409).json(fail('Aguarde o envio atual terminar antes de excluir a campanha'));
+  const deleted = await prismaRepository.bulkCampaign.deleteMany({
+    where: { id: campaign.id, instanceId: instance.id, status: { in: ['queued', 'paused', 'completed'] } },
+  });
+  if (!deleted.count) return res.status(409).json(fail('Não foi possível excluir uma campanha em andamento'));
+  return res.status(204).send();
 });
 
 export async function processBulkCampaignQueue() {

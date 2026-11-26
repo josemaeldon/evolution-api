@@ -9,7 +9,7 @@ import { useInstance } from "@/contexts/InstanceContext";
 import { saasApi } from "@/lib/queries/saas";
 
 type Label = { id: string; name: string; color: string };
-type Contact = { id: string; remoteJid: string; pushName?: string; marketingOptIn: boolean; labels: Label[] };
+type Contact = { id: string; remoteJid: string; pushName?: string; customName?: string; marketingOptIn: boolean; labels: Label[] };
 type Organization = { labels: Label[]; contacts: Contact[] };
 
 export default function ContactLabels() {
@@ -28,7 +28,8 @@ export default function ContactLabels() {
     enabled: !!instance?.id,
   });
   const labels = data?.labels || [];
-  const contacts = (data?.contacts || []).filter((contact) => `${contact.pushName || ""} ${contact.remoteJid}`.toLowerCase().includes(search.toLowerCase()));
+  const contactName = (contact: Contact) => contact.customName?.trim() || contact.pushName?.trim() || contact.remoteJid.split("@")[0];
+  const contacts = (data?.contacts || []).filter((contact) => `${contactName(contact)} ${contact.pushName || ""} ${contact.remoteJid}`.toLowerCase().includes(search.toLowerCase()));
   const allVisibleSelected = contacts.length > 0 && contacts.every((contact) => selectedContactIds.includes(contact.id));
 
   const refresh = () => queryClient.invalidateQueries({ queryKey });
@@ -160,7 +161,7 @@ export default function ContactLabels() {
                     <td className="p-2">
                       <input
                         type="checkbox"
-                        aria-label={`Selecionar ${contact.pushName || contact.remoteJid.split("@")[0]}`}
+                        aria-label={`Selecionar ${contactName(contact)}`}
                         checked={selectedContactIds.includes(contact.id)}
                         onChange={(event) => setSelectedContactIds((current) => event.target.checked
                           ? [...current, contact.id]
@@ -168,7 +169,7 @@ export default function ContactLabels() {
                       />
                     </td>
                     <td className="p-2">
-                      <div className="font-medium">{contact.pushName || "Contato"}</div>
+                      <div className="font-medium">{contactName(contact)}</div>
                       <div className="text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</div>
                     </td>
                     <td className="p-2">
