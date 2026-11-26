@@ -235,8 +235,25 @@ const messagePreview = (message: Message): string =>
     audioMessage: "Áudio",
     documentMessage: "Documento",
     stickerMessage: "Figurinha",
+    reactionMessage: message.message?.reactionMessage?.text ? `Reação ${message.message.reactionMessage.text}` : "Reação removida",
+    protocolMessage: "Atualização da mensagem",
   }[message.messageType] ||
   "Mensagem";
+
+type MessageReaction = { sender: string; text: string };
+
+const ReactionBadges = ({ reactions }: { reactions?: MessageReaction[] }) => {
+  if (!reactions?.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1" aria-label="Reações da mensagem">
+      {reactions.map((reaction) => (
+        <span key={reaction.sender} title={reaction.sender} className="rounded-full border bg-background px-1.5 py-0.5 text-sm" aria-label={`${reaction.sender} reagiu com ${reaction.text}`}>
+          {reaction.text}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 const quotedMessage = (message: Message): QuotedMessage => ({ key: message.key, message: messageContent(message) });
 const PAGE_SIZE = 30;
@@ -370,6 +387,12 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 
     case "stickerMessage":
       return <ChatMessageImage message={message} instanceName={instanceName} token={token} className="max-w-32 max-h-32 object-contain" />;
+
+    case "reactionMessage":
+      return <span>{message.message?.reactionMessage?.text ? `Reagiu com ${message.message.reactionMessage.text}` : "Reação removida"}</span>;
+
+    case "protocolMessage":
+      return <span>Atualização da mensagem</span>;
 
     default:
       // Fallback for unknown message types
@@ -778,12 +801,67 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     };
   }, [instance?.name, remoteJid]);
 
+  const { visibleMessages, reactionsByTarget } = useMemo(() => {
+    const reactions = new Map<string, Map<string, MessageReaction>>();
+    const edits = new Map<string, Record<string, unknown>>();
+    const targetIds = new Set(
+      allMessages
+        .filter((message) => !["reactionMessage", "protocolMessage"].includes(normalizeMessageForDisplay(message).messageType))
+        .map((message) => message.key.id),
+    );
+    const visible: Message[] = [];
+
+    [...allMessages]
+      .sort((a, b) => getMessageTimestamp(a).getTime() - getMessageTimestamp(b).getTime())
+      .forEach((message) => {
+        const normalized = normalizeMessageForDisplay(message);
+        if (normalized.messageType === "protocolMessage") {
+          const protocol = normalized.message?.protocolMessage;
+          const editedContent = protocol?.editedMessage;
+          const targetId = protocol?.key?.id;
+          if (editedContent && targetId) {
+            if (targetIds.has(targetId)) edits.set(targetId, editedContent);
+            else visible.push(normalizeMessageForDisplay({ ...message, message: editedContent, status: "EDITED" }));
+          } else {
+            visible.push(message);
+          }
+          return;
+        }
+        if (normalized.messageType !== "reactionMessage") {
+          visible.push(message);
+          return;
+        }
+
+        const reaction = normalized.message?.reactionMessage;
+        const targetId = reaction?.key?.id;
+        if (!targetId) {
+          visible.push(message);
+          return;
+        }
+
+        const sender = message.key.fromMe ? "Você" : message.pushName || message.key.participant || message.key.remoteJid;
+        const senderKey = message.key.fromMe ? "self" : message.key.participant || message.key.remoteJid;
+        const bySender = reactions.get(targetId) || new Map<string, MessageReaction>();
+        if (reaction.text) bySender.set(senderKey, { sender, text: reaction.text });
+        else bySender.delete(senderKey);
+        reactions.set(targetId, bySender);
+
+        if (!targetIds.has(targetId) && reaction.text) visible.push(message);
+      });
+
+    return {
+      visibleMessages: visible.map((message) => {
+        const editedContent = edits.get(message.key.id);
+        return editedContent ? normalizeMessageForDisplay({ ...message, message: editedContent, status: "EDITED" }) : message;
+      }),
+      reactionsByTarget: new Map([...reactions].map(([targetId, bySender]) => [targetId, [...bySender.values()]])),
+    };
+  }, [allMessages]);
+
   // Group messages by date
   const groupedMessages = useMemo(() => {
-    if (!allMessages) return [];
-
     // Sort messages by timestamp first
-    const sortedMessages = [...allMessages].sort((a, b) => {
+    const sortedMessages = [...visibleMessages].sort((a, b) => {
       const aTime = getMessageTimestamp(a).getTime();
       const bTime = getMessageTimestamp(b).getTime();
       return aTime - bTime;
@@ -819,7 +897,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     }
 
     return grouped;
-  }, [allMessages, t, locale]);
+  }, [visibleMessages, t, locale]);
 
   useLayoutEffect(() => {
     const container = scrollContainerRef.current;
@@ -971,7 +1049,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             <QuotedContent message={message} />
             <DeferredMessageContent message={withoutManagerSignature(message)} instanceName={instance?.name} token={instance?.token} />
           </div>
-          <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
+          <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
+          <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">
+            {formatMessageTime(getMessageTimestamp(message), locale)}{message.status === "EDITED" && " · editada"}
+          </span>
         </div>
       </div>
     </div>
@@ -996,7 +1077,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
               <QuotedContent message={message} />
               <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
             </div>
-            <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">{formatMessageTime(getMessageTimestamp(message), locale)}</span>
+            <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
+            <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">
+              {formatMessageTime(getMessageTimestamp(message), locale)}{message.status === "EDITED" && " · editada"}
+            </span>
           </div>
           {messageActions(message)}
         </div>
