@@ -18,6 +18,9 @@ export default function ContactLabels() {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#2563eb");
   const [search, setSearch] = useState("");
+  const [selectedLabelId, setSelectedLabelId] = useState("");
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [assigning, setAssigning] = useState(false);
   const queryKey = ["contactOrganization", instance?.id];
   const { data, isLoading } = useQuery<Organization>({
     queryKey,
@@ -26,6 +29,7 @@ export default function ContactLabels() {
   });
   const labels = data?.labels || [];
   const contacts = (data?.contacts || []).filter((contact) => `${contact.pushName || ""} ${contact.remoteJid}`.toLowerCase().includes(search.toLowerCase()));
+  const allVisibleSelected = contacts.length > 0 && contacts.every((contact) => selectedContactIds.includes(contact.id));
 
   const refresh = () => queryClient.invalidateQueries({ queryKey });
   const createLabel = async () => {
@@ -57,6 +61,20 @@ export default function ContactLabels() {
       await refresh();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || "Não foi possível atualizar o contato");
+    }
+  };
+  const assignSelectedContacts = async () => {
+    if (!instance || !selectedLabelId || !selectedContactIds.length) return;
+    setAssigning(true);
+    try {
+      await saasApi.post(`/saas/instance/${instance.id}/labels/${selectedLabelId}/contacts`, { contactIds: selectedContactIds });
+      setSelectedContactIds([]);
+      await refresh();
+      toast.success(`Etiqueta atribuída a ${selectedContactIds.length} contato(s)`);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || "Não foi possível atribuir a etiqueta");
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -99,6 +117,21 @@ export default function ContactLabels() {
           </div>
           <Input aria-label="Buscar contatos" placeholder="Buscar por nome ou número" value={search} onChange={(event) => setSearch(event.target.value)} className="max-w-sm" />
         </div>
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-muted/50 p-3">
+          <span className="text-sm font-medium">Atribuir etiqueta aos contatos selecionados</span>
+          <select
+            aria-label="Etiqueta para atribuição em lote"
+            value={selectedLabelId}
+            onChange={(event) => setSelectedLabelId(event.target.value)}
+            className="h-9 min-w-48 rounded-md border bg-background px-3 text-sm"
+          >
+            <option value="">Selecione uma etiqueta</option>
+            {labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}
+          </select>
+          <Button onClick={assignSelectedContacts} disabled={assigning || !selectedLabelId || !selectedContactIds.length}>
+            {assigning ? "Atribuindo…" : `Atribuir${selectedContactIds.length ? ` (${selectedContactIds.length})` : ""}`}
+          </Button>
+        </div>
         {isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Carregando contatos…</p>
         ) : (
@@ -106,6 +139,16 @@ export default function ContactLabels() {
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr className="border-b text-xs text-muted-foreground">
+                  <th className="p-2">
+                    <input
+                      type="checkbox"
+                      aria-label="Selecionar todos os contatos visíveis"
+                      checked={allVisibleSelected}
+                      onChange={(event) => setSelectedContactIds((current) => event.target.checked
+                        ? [...new Set([...current, ...contacts.map((contact) => contact.id)])]
+                        : current.filter((id) => !contacts.some((contact) => contact.id === id)))}
+                    />
+                  </th>
                   <th className="p-2">Contato</th>
                   <th className="p-2">Etiquetas</th>
                   <th className="p-2">Autorização para campanhas</th>
@@ -114,6 +157,16 @@ export default function ContactLabels() {
               <tbody>
                 {contacts.map((contact) => (
                   <tr key={contact.id} className="border-b last:border-0">
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${contact.pushName || contact.remoteJid.split("@")[0]}`}
+                        checked={selectedContactIds.includes(contact.id)}
+                        onChange={(event) => setSelectedContactIds((current) => event.target.checked
+                          ? [...current, contact.id]
+                          : current.filter((id) => id !== contact.id))}
+                      />
+                    </td>
                     <td className="p-2">
                       <div className="font-medium">{contact.pushName || "Contato"}</div>
                       <div className="text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</div>

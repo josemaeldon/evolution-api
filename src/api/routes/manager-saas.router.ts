@@ -688,6 +688,31 @@ router.delete('/instance/:instanceId/labels/:labelId', async (req, res) => {
   return res.status(204).send();
 });
 
+router.post('/instance/:instanceId/labels/:labelId/contacts', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  const contactIds = Array.isArray(req.body?.contactIds)
+    ? [...new Set<string>(req.body.contactIds.map((id: unknown) => String(id)))].filter(Boolean)
+    : [];
+  if (!contactIds.length || contactIds.length > 2000)
+    return res.status(400).json(fail('Selecione entre 1 e 2000 contatos'));
+  const label = await prismaRepository.managerLabel.findFirst({
+    where: { id: req.params.labelId, instanceId: instance.id },
+    select: { id: true },
+  });
+  if (!label) return res.status(404).json(fail('Etiqueta não encontrada'));
+  const contacts = await prismaRepository.contact.findMany({
+    where: { id: { in: contactIds }, instanceId: instance.id },
+    select: { id: true },
+  });
+  if (contacts.length !== contactIds.length) return res.status(400).json(fail('Um ou mais contatos são inválidos'));
+  await prismaRepository.managerLabelAssignment.createMany({
+    data: contacts.map(({ id }) => ({ contactId: id, labelId: label.id })),
+    skipDuplicates: true,
+  });
+  return res.json({ assigned: contacts.length });
+});
+
 router.put('/instance/:instanceId/contacts/:contactId/organization', async (req, res) => {
   const instance = await managedInstance(req, res);
   if (!instance) return;
