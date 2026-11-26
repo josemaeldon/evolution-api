@@ -1,5 +1,5 @@
 import { FileIcon, XIcon } from "lucide-react";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@evoapi/design-system/button";
@@ -11,6 +11,17 @@ type SelectedMediaProps = {
 
 const SelectedMedia = ({ selectedMedia, setSelectedMedia }: SelectedMediaProps) => {
   const { t } = useTranslation();
+  const [previewUrl, setPreviewUrl] = useState("");
+
+  useEffect(() => {
+    if (!selectedMedia || (!selectedMedia.type.includes("image") && !selectedMedia.type.includes("video"))) {
+      setPreviewUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(selectedMedia);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedMedia]);
 
   const handleRemoveMedia = () => {
     setSelectedMedia(null);
@@ -21,7 +32,7 @@ const SelectedMedia = ({ selectedMedia, setSelectedMedia }: SelectedMediaProps) 
       return (
         <img
           className="w-80 rounded-lg"
-          src={URL.createObjectURL(selectedMedia)}
+          src={previewUrl}
           alt={t("chat.media.selectedMedia.imageAlt")}
           style={{
             maxHeight: "400px",
@@ -34,7 +45,7 @@ const SelectedMedia = ({ selectedMedia, setSelectedMedia }: SelectedMediaProps) 
     if (selectedMedia.type.includes("video")) {
       return (
         <div className="flex items-center justify-center">
-          <video className="w-80 rounded-lg object-cover" src={URL.createObjectURL(selectedMedia)} controls />
+          <video className="w-80 rounded-lg object-cover" src={previewUrl} controls />
         </div>
       );
     }

@@ -750,7 +750,15 @@ router.get('/instance/:instanceId/campaigns', async (req, res) => {
   if (!instance) return;
   const campaigns = await prismaRepository.bulkCampaign.findMany({
     where: { instanceId: instance.id },
-    include: { _count: { select: { Recipients: true } }, Recipients: { select: { status: true } } },
+    select: {
+      id: true,
+      status: true,
+      message: true,
+      mediaFileName: true,
+      intervalSeconds: true,
+      createdAt: true,
+      Recipients: { select: { status: true } },
+    },
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
@@ -777,8 +785,21 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     : [];
   const randomCount = Number(req.body?.randomCount || 0);
   const intervalSeconds = Number(req.body?.intervalSeconds ?? 30);
+  const image = req.body?.image;
+  const imageProvided = image !== undefined && image !== null;
+  const mediaData = image?.data === undefined ? null : String(image.data);
+  const mediaMimeType = image?.mimetype === undefined ? null : String(image.mimetype);
+  const mediaFileName =
+    image?.fileName === undefined
+      ? null
+      : String(image.fileName)
+          .replace(/[\\/]/g, '_')
+          .split('')
+          .filter((character) => character.charCodeAt(0) >= 32)
+          .join('')
+          .slice(0, 255);
   if (
-    !message ||
+    (!message && !imageProvided) ||
     message.length > 4000 ||
     labelIds.length > 50 ||
     !Number.isInteger(intervalSeconds) ||
@@ -786,6 +807,12 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     intervalSeconds > 60 ||
     intervalSeconds % 10 !== 0 ||
     (!labelIds.length && !randomCount) ||
+    (imageProvided &&
+      (typeof image.data !== 'string' ||
+        !mediaData ||
+        !['image/jpeg', 'image/png', 'image/webp'].includes(mediaMimeType || '') ||
+        mediaData.length > 7_000_000 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(mediaData))) ||
     (randomCount && (!Number.isInteger(randomCount) || randomCount < 1 || randomCount > 500))
   ) {
     return res.status(400).json(fail('Informe mensagem e seleção válidas (limite de 500 contatos por campanha)'));
@@ -815,6 +842,9 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     data: {
       instanceId: instance.id,
       message,
+      mediaData,
+      mediaMimeType,
+      mediaFileName,
       status: 'queued',
       intervalSeconds,
       Recipients: { create: contacts.map(({ remoteJid }) => ({ remoteJid })) },
@@ -884,10 +914,24 @@ export async function processBulkCampaignQueue() {
         /{{\s*(nome|primeiro_nome|telefone|etiquetas)\s*}}/gi,
         (_, key: string) => variables[key.toLowerCase()],
       );
-      await sendMessageController.sendText(
-        { instanceName: recipient.Campaign.Instance.name },
-        { number: phone, text: personalizedMessage },
-      );
+      if (recipient.Campaign.mediaData && recipient.Campaign.mediaMimeType) {
+        await sendMessageController.sendMedia(
+          { instanceName: recipient.Campaign.Instance.name },
+          {
+            number: phone,
+            mediatype: 'image',
+            mimetype: recipient.Campaign.mediaMimeType,
+            fileName: recipient.Campaign.mediaFileName || 'imagem-campanha',
+            caption: personalizedMessage,
+            media: recipient.Campaign.mediaData,
+          },
+        );
+      } else {
+        await sendMessageController.sendText(
+          { instanceName: recipient.Campaign.Instance.name },
+          { number: phone, text: personalizedMessage },
+        );
+      }
       await prismaRepository.bulkCampaignRecipient.update({
         where: { id: recipient.id },
         data: { status: 'sent', sentAt: new Date() },

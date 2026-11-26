@@ -302,6 +302,9 @@ model ManagerLabelAssignment {
 model BulkCampaign {
   id        String   @id @default(cuid())
   message   String   @db.Text
+  mediaData String?  @db.Text
+  mediaMimeType String? @db.VarChar(100)
+  mediaFileName String? @db.VarChar(255)
   status    String   @default("queued") @db.VarChar(20)
   intervalSeconds Int @default(30) @db.Integer
   nextSendAt DateTime? @db.Timestamp

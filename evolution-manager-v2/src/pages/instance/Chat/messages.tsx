@@ -1,5 +1,5 @@
 import "./style.css";
-import { Copy, Forward, MoreHorizontal, Reply, Send, Trash2, User, X } from "lucide-react";
+import { Copy, Forward, MoreHorizontal, Reply, Send, Trash2, Upload, User, X } from "lucide-react";
 import { ReactNode, RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
@@ -36,7 +36,7 @@ import { Message, QuotedMessage } from "@/types/evolution.types";
 import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
 
 // Import components from EmbedChatMessage for attachment functionality
-import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
+import { MediaOptions, validateChatAttachment } from "../EmbedChatMessage/InputMessage/media-options";
 import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
 import { useChatPresence } from "./use-chat-presence";
 
@@ -197,9 +197,7 @@ const normalizeMessageForDisplay = (message: Message): Message => {
     content = nested;
   }
 
-  const contentType = Object.keys(content).find(
-    (key) => key === "conversation" || (key.endsWith("Message") && key !== "messageContextInfo"),
-  );
+  const contentType = Object.keys(content).find((key) => key === "conversation" || (key.endsWith("Message") && key !== "messageContextInfo"));
 
   return {
     ...message,
@@ -318,7 +316,9 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 
       return (
         <div className="max-w-xs rounded-lg bg-muted p-3">
-          <div className="mb-2 flex items-center gap-2 font-medium"><span aria-hidden="true">📍</span> Localização</div>
+          <div className="mb-2 flex items-center gap-2 font-medium">
+            <span aria-hidden="true">📍</span> Localização
+          </div>
           {location?.name && <p className="text-sm font-medium">{location.name}</p>}
           {location?.address && <p className="text-xs text-muted-foreground">{location.address}</p>}
           {hasCoordinates && (
@@ -495,6 +495,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     if (pendingSendRef.current?.id === id) pendingSendRef.current = null;
   };
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
+  const [preparedMedia, setPreparedMedia] = useState<{ file: File; base64: string } | null>(null);
+  const [mediaPreparationProgress, setMediaPreparationProgress] = useState<number | null>(null);
+  const [mediaUploadProgress, setMediaUploadProgress] = useState<number | null>(null);
+  const [draggingFile, setDraggingFile] = useState(false);
   const [recordingActive, setRecordingActive] = useState(false);
   const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -521,6 +525,40 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const { contactTyping, updateTyping, stopTyping } = useChatPresence(instance?.name, instance?.token, instance?.integration, remoteJid);
 
   useEffect(() => setRecordingActive(false), [remoteJid]);
+
+  useEffect(() => {
+    if (!selectedMedia) {
+      setPreparedMedia(null);
+      setMediaPreparationProgress(null);
+      setMediaUploadProgress(null);
+      return;
+    }
+    const reader = new FileReader();
+    setPreparedMedia(null);
+    setMediaPreparationProgress(0);
+    setMediaUploadProgress(null);
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) setMediaPreparationProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    reader.onload = () => {
+      const base64 = String(reader.result).split(",")[1] || "";
+      setPreparedMedia({ file: selectedMedia, base64 });
+      setMediaPreparationProgress(100);
+    };
+    reader.onerror = () => {
+      setMediaPreparationProgress(null);
+      toast.error("Não foi possível preparar o arquivo para envio.");
+    };
+    reader.readAsDataURL(selectedMedia);
+    return () => {
+      if (reader.readyState === FileReader.LOADING) reader.abort();
+    };
+  }, [selectedMedia]);
+
+  const selectDroppedFile = (file?: File) => {
+    if (!file || !validateChatAttachment(file)) return;
+    setSelectedMedia(file);
+  };
 
   const sendRecording = async (audio: Blob) => {
     if (!remoteJid || !instance?.name || !instance?.token) throw new Error("Instância indisponível");
@@ -578,38 +616,27 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
   // Handle sending media messages
   const sendMediaMessage = async () => {
-    if (!selectedMedia || !remoteJid || !instance?.name || !instance?.token || isSending) return;
+    if (!selectedMedia || preparedMedia?.file !== selectedMedia || !remoteJid || !instance?.name || !instance?.token || isSending) return;
     const clientRequestId = requestIdFor("media", selectedMedia, `${messageText.trim()}\0${replyTo?.key.id || ""}`);
 
     try {
       setIsSending(true);
 
-      // Convert media to base64
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(selectedMedia);
-        reader.onload = () => {
-          const base64 = reader.result as string;
-          // Strip the data URI prefix (data:image/xyz;base64,)
-          const base64Data = base64.split(",")[1];
-          resolve(base64Data);
-        };
-        reader.onerror = reject;
-      });
-
+      setMediaUploadProgress(0);
       await sendMediaMutation({
         instanceName: instance.name,
         token: instance.token,
+        onUploadProgress: setMediaUploadProgress,
         data: {
           number: remoteJid,
           clientRequestId,
           signMessage: managerAccount?.signMessages === true,
           ...(replyTo && { quoted: quotedMessage(replyTo) }),
           mediaMessage: {
-            mediatype: selectedMedia.type.split("/")[0] === "application" ? "document" : (selectedMedia.type.split("/")[0] as "audio" | "video" | "image" | "document"),
-            mimetype: selectedMedia.type,
+            mediatype: ["audio", "video", "image"].includes(selectedMedia.type.split("/")[0]) ? (selectedMedia.type.split("/")[0] as "audio" | "video" | "image") : "document",
+            mimetype: selectedMedia.type || "application/octet-stream",
             caption: messageText.trim(),
-            media: base64Data,
+            media: preparedMedia.base64,
             fileName: selectedMedia.name,
           },
         },
@@ -626,6 +653,8 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
       }
     } catch (error) {
       console.error("Error sending media:", error);
+      setMediaUploadProgress(null);
+      toast.error("Não foi possível enviar o arquivo. Tente novamente.");
     } finally {
       setIsSending(false);
     }
@@ -852,11 +881,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const { visibleMessages, reactionsByTarget } = useMemo(() => {
     const reactions = new Map<string, Map<string, MessageReaction>>();
     const edits = new Map<string, Record<string, unknown>>();
-    const targetIds = new Set(
-      allMessages
-        .filter((message) => !["reactionMessage", "protocolMessage"].includes(normalizeMessageForDisplay(message).messageType))
-        .map((message) => message.key.id),
-    );
+    const targetIds = new Set(allMessages.filter((message) => !["reactionMessage", "protocolMessage"].includes(normalizeMessageForDisplay(message).messageType)).map((message) => message.key.id));
     const visible: Message[] = [];
 
     [...allMessages]
@@ -1118,7 +1143,12 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const renderBubbleRight = (message: Message) => (
     <div key={message.key.id} className="mb-4 flex justify-end">
       <div className="flex max-w-[85%] items-start gap-1">
-        <ChatEmojiPicker label="Reagir à mensagem" onSelect={(emoji) => sendReaction(message, emoji)} onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined} disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")} />
+        <ChatEmojiPicker
+          label="Reagir à mensagem"
+          onSelect={(emoji) => sendReaction(message, emoji)}
+          onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined}
+          disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")}
+        />
         {messageActions(message)}
         <div className="min-w-0">
           {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}:</div>}
@@ -1128,7 +1158,8 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
           </div>
           <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
           <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">
-            {formatMessageTime(getMessageTimestamp(message), locale)}{message.status === "EDITED" && " · editada"}
+            {formatMessageTime(getMessageTimestamp(message), locale)}
+            {message.status === "EDITED" && " · editada"}
           </span>
         </div>
       </div>
@@ -1156,11 +1187,17 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             </div>
             <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
             <span className="mt-0.5 block px-1 text-[11px] text-muted-foreground">
-              {formatMessageTime(getMessageTimestamp(message), locale)}{message.status === "EDITED" && " · editada"}
+              {formatMessageTime(getMessageTimestamp(message), locale)}
+              {message.status === "EDITED" && " · editada"}
             </span>
           </div>
           {messageActions(message)}
-          <ChatEmojiPicker label="Reagir à mensagem" onSelect={(emoji) => sendReaction(message, emoji)} onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined} disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")} />
+          <ChatEmojiPicker
+            label="Reagir à mensagem"
+            onSelect={(emoji) => sendReaction(message, emoji)}
+            onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined}
+            disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")}
+          />
         </div>
       </div>
     );
@@ -1189,7 +1226,39 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
   return (
     <ChatImageGallery key={remoteJid} messages={groupedMessages.flatMap((group) => group.messages)}>
-      <div className="flex h-full flex-col bg-muted/10">
+      <div
+        className="relative flex h-full flex-col bg-muted/10"
+        onDragEnter={(event) => {
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setDraggingFile(true);
+          }
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          }
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFile(false);
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.files.length) return;
+          event.preventDefault();
+          setDraggingFile(false);
+          if (event.dataTransfer.files.length > 1) toast.info("Anexe um arquivo por vez.");
+          selectDroppedFile(event.dataTransfer.files[0]);
+        }}>
+        {draggingFile && (
+          <div className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/90 text-primary shadow-lg">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <Upload className="h-8 w-8" />
+              <span className="font-medium">Solte a mídia ou arquivo para anexar</span>
+              <span className="text-sm text-muted-foreground">Tamanho máximo: 25 MB</span>
+            </div>
+          </div>
+        )}
         <div className="flex-shrink-0 border-b bg-background/95 p-4 backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10">
@@ -1246,6 +1315,21 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
             {selectedMedia && (
               <div className="border-b border-border bg-muted/30 px-3 py-2">
                 <SelectedMedia selectedMedia={selectedMedia} setSelectedMedia={setSelectedMedia} />
+                <div className="mt-3 space-y-1.5" role="status" aria-live="polite">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{mediaUploadProgress !== null ? "Enviando arquivo…" : preparedMedia?.file === selectedMedia ? "Pronto para envio" : "Preparando arquivo para envio…"}</span>
+                    <span>{mediaUploadProgress ?? mediaPreparationProgress ?? 0}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Progresso do arquivo"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={mediaUploadProgress ?? mediaPreparationProgress ?? 0}
+                    className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary transition-[width] duration-150" style={{ width: `${mediaUploadProgress ?? mediaPreparationProgress ?? 0}%` }} />
+                  </div>
+                </div>
               </div>
             )}
             <div className="flex items-center gap-2 px-2 py-1.5">
@@ -1285,7 +1369,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
                   type="button"
                   size="icon"
                   onClick={sendMessage}
-                  disabled={(!messageText.trim() && !selectedMedia) || isSending}
+                  disabled={(!messageText.trim() && !selectedMedia) || (selectedMedia !== null && preparedMedia?.file !== selectedMedia) || isSending}
                   className="h-9 w-9 flex-shrink-0 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-50">
                   <Send className="h-4 w-4" />
                   <span className="sr-only">{t("chat.input.send")}</span>

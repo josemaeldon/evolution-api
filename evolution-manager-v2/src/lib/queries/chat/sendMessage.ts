@@ -13,6 +13,7 @@ interface SendMediaParams {
   instanceName: string;
   token: string;
   data: SendMedia;
+  onUploadProgress?: (progress: number) => void;
 }
 
 interface SendAudioParams {
@@ -31,7 +32,7 @@ const sendText = async ({ instanceName, token, data }: SendTextParams) => {
   return response.data;
 };
 
-const sendMedia = async ({ instanceName, token, data }: SendMediaParams) => {
+const sendMedia = async ({ instanceName, token, data, onUploadProgress }: SendMediaParams) => {
   try {
     // Send as flat structure as required by the newer API
     const jsonData = {
@@ -48,6 +49,9 @@ const sendMedia = async ({ instanceName, token, data }: SendMediaParams) => {
 
     const response = await api.post(`/message/sendMedia/${instanceName}`, jsonData, {
       timeout: 120000,
+      onUploadProgress: (event) => {
+        if (event.total) onUploadProgress?.(Math.round((event.loaded / event.total) * 100));
+      },
       headers: {
         apikey: token,
         "content-type": "application/json",

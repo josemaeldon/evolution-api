@@ -15,6 +15,38 @@ interface MediaOptionsProps {
   setSelectedMedia: React.Dispatch<React.SetStateAction<File | null>>;
 }
 
+const allowedDocumentTypes = [
+  "text/plain",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/zip",
+  "application/x-rar-compressed",
+  "application/x-7z-compressed",
+];
+
+export const validateChatAttachment = (file: File): boolean => {
+  const fileType = file.type.split("/")[0];
+  const supported = ["audio", "image", "video"].includes(fileType) || allowedDocumentTypes.includes(file.type);
+  if (!supported) {
+    toast.error("Tipo de arquivo não suportado.");
+    return false;
+  }
+  if (!file.size) {
+    toast.error("O arquivo está vazio.");
+    return false;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    toast.error("O tamanho máximo por arquivo é 25 MB.");
+    return false;
+  }
+  return true;
+};
+
 const MediaOptions = ({ setSelectedMedia }: MediaOptionsProps) => {
   const { t } = useTranslation();
   const { inputIconsMainColor } = useEmbedColors();
@@ -25,47 +57,12 @@ const MediaOptions = ({ setSelectedMedia }: MediaOptionsProps) => {
 
   const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) {
-      setSelectedMedia(null);
       return;
     }
 
-    // Validação de tamanho e tipo de arquivo
-    const fileType = file.type.split("/")[0];
-    const fileSize = file.size / (1024 * 1024); // Converter para MB
-
-    // Validar por tipo
-    switch (fileType) {
-      case "audio":
-        if (fileSize > 16) {
-          toast.error(t("chat.media.errors.audioSize"));
-          return;
-        }
-        break;
-      case "image":
-        if (fileSize > 5) {
-          toast.error(t("chat.media.errors.imageSize"));
-          return;
-        }
-        break;
-      case "video":
-        if (fileSize > 16) {
-          toast.error(t("chat.media.errors.videoSize"));
-          return;
-        }
-        break;
-      case "application":
-      case "text":
-        if (fileSize > 100) {
-          toast.error(t("chat.media.errors.documentSize"));
-          return;
-        }
-        break;
-      default:
-        toast.error(t("chat.media.errors.unsupportedType"));
-        return;
-    }
-
+    if (!validateChatAttachment(file)) return;
     setSelectedMedia(file);
   };
 
@@ -82,20 +79,6 @@ const MediaOptions = ({ setSelectedMedia }: MediaOptionsProps) => {
       documentInputRef.current.click();
     }
   };
-
-  const allowedDocumentTypes = [
-    "text/plain",
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/zip",
-    "application/x-rar-compressed",
-    "application/x-7z-compressed",
-  ];
 
   return (
     <>

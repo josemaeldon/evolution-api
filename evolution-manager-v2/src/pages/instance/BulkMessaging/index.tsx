@@ -1,7 +1,7 @@
 import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pause, Play, Send } from "lucide-react";
-import { useRef, useState } from "react";
+import { ImagePlus, Pause, Play, Send, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { useInstance } from "@/contexts/InstanceContext";
 import { saasApi } from "@/lib/queries/saas";
 
 type Label = { id: string; name: string; color: string };
-type Campaign = { id: string; status: string; message: string; intervalSeconds: number; createdAt: string; counts: Record<string, number> };
+type Campaign = { id: string; status: string; message: string; mediaFileName?: string | null; intervalSeconds: number; createdAt: string; counts: Record<string, number> };
 type Organization = { labels: Label[] };
 
 const statusLabel: Record<string, string> = { queued: "Na fila", processing: "Em andamento", paused: "Pausada", completed: "Concluída" };
@@ -26,12 +26,25 @@ export default function BulkMessaging() {
   const { instance } = useInstance();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
+  const [image, setImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [draggingImage, setDraggingImage] = useState(false);
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [randomCount, setRandomCount] = useState("");
   const [mode, setMode] = useState<"labels" | "random">("labels");
   const [confirmedConsent, setConfirmedConsent] = useState(false);
+  useEffect(() => {
+    if (!image) {
+      setImagePreview("");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(image);
+    setImagePreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [image]);
   const organization = useQuery<Organization>({
     queryKey: ["contactOrganization", instance?.id],
     queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/organization`)).data,
@@ -48,15 +61,25 @@ export default function BulkMessaging() {
     queryClient.invalidateQueries({ queryKey: ["contactOrganization", instance?.id] });
   };
   const createCampaign = async () => {
-    if (!instance || !message.trim() || !confirmedConsent) return;
+    if (!instance || (!message.trim() && !image) || !confirmedConsent) return;
     try {
+      const imageData = image
+        ? await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+            reader.onerror = () => reject(new Error("Não foi possível ler a imagem"));
+            reader.readAsDataURL(image);
+          })
+        : undefined;
       await saasApi.post(`/saas/instance/${instance.id}/campaigns`, {
         message: message.trim(),
+        ...(image && imageData ? { image: { data: imageData, mimetype: image.type, fileName: image.name } } : {}),
         labelIds: mode === "labels" ? selectedLabels : [],
         randomCount: mode === "random" ? Number(randomCount) : 0,
         intervalSeconds,
       });
       setMessage("");
+      setImage(null);
       setIntervalSeconds(30);
       setConfirmedConsent(false);
       setSelectedLabels([]);
@@ -66,6 +89,18 @@ export default function BulkMessaging() {
     } catch (error: any) {
       toast.error(error?.response?.data?.error || "Não foi possível criar a campanha");
     }
+  };
+  const chooseImage = (file?: File) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Use uma imagem JPG, PNG ou WebP.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 5 MB.");
+      return;
+    }
+    setImage(file);
   };
   const setCampaignStatus = async (campaignId: string, status: "queued" | "paused") => {
     if (!instance) return;
@@ -154,6 +189,59 @@ export default function BulkMessaging() {
             Mensagem
           </label>
           <Textarea ref={messageRef} id="bulkMessage" rows={5} maxLength={4000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Escreva a mensagem da campanha" />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(event) => {
+              chooseImage(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => imageInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") imageInputRef.current?.click();
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDraggingImage(true);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node)) setDraggingImage(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDraggingImage(false);
+              chooseImage(event.dataTransfer.files?.[0]);
+            }}
+            className={`mt-3 flex min-h-24 cursor-pointer items-center justify-center gap-3 rounded-md border border-dashed p-4 text-sm transition-colors ${draggingImage ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
+            aria-label="Adicionar imagem à campanha arrastando ou selecionando um arquivo">
+            {imagePreview ? (
+              <div className="flex w-full items-center gap-3">
+                <img src={imagePreview} alt="Prévia da imagem da campanha" className="h-20 w-20 rounded object-cover" />
+                <span className="min-w-0 flex-1 truncate">{image?.name}</span>
+                <button
+                  type="button"
+                  aria-label="Remover imagem"
+                  className="rounded p-2 hover:bg-muted"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setImage(null);
+                  }}>
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                <span>Arraste uma imagem aqui ou clique para selecionar · JPG, PNG ou WebP, até 5 MB</span>
+              </>
+            )}
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">Inserir variável:</span>
             {messageVariables.map((variable) => (
@@ -175,7 +263,7 @@ export default function BulkMessaging() {
           <input type="checkbox" checked={confirmedConsent} onChange={(event) => setConfirmedConsent(event.target.checked)} className="mt-1" />
           <span>Confirmo que os contatos selecionados autorizaram receber esta mensagem. Contatos sem autorização são excluídos automaticamente.</span>
         </label>
-        <Button onClick={createCampaign} disabled={!message.trim() || !confirmedConsent || (mode === "labels" ? !selectedLabels.length : !Number(randomCount) || Number(randomCount) > 500)}>
+        <Button onClick={createCampaign} disabled={(!message.trim() && !image) || !confirmedConsent || (mode === "labels" ? !selectedLabels.length : !Number(randomCount) || Number(randomCount) > 500)}>
           <Send className="mr-2 h-4 w-4" />
           Adicionar à fila
         </Button>
@@ -197,6 +285,7 @@ export default function BulkMessaging() {
                       {campaign.intervalSeconds < 60 ? `${campaign.intervalSeconds}s` : `${campaign.intervalSeconds / 60} min`}
                     </span>
                   </div>
+                  {campaign.mediaFileName && <p className="mt-1 text-xs text-muted-foreground">Inclui imagem: {campaign.mediaFileName}</p>}
                   <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{campaign.message}</p>
                   <time className="text-xs text-muted-foreground">{new Date(campaign.createdAt).toLocaleString("pt-BR")}</time>
                 </div>
