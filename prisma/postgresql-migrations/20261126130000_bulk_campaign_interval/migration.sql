@@ -1,0 +1,3 @@
+ALTER TABLE "BulkCampaign"
+  ADD COLUMN "intervalSeconds" INTEGER NOT NULL DEFAULT 30,
+  ADD COLUMN "nextSendAt" TIMESTAMP(3);

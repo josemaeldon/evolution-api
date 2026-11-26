@@ -751,10 +751,15 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     ? [...new Set<string>(req.body.labelIds.map((id: unknown) => String(id)))]
     : [];
   const randomCount = Number(req.body?.randomCount || 0);
+  const intervalSeconds = Number(req.body?.intervalSeconds ?? 30);
   if (
     !message ||
     message.length > 4000 ||
     labelIds.length > 50 ||
+    !Number.isInteger(intervalSeconds) ||
+    intervalSeconds < 30 ||
+    intervalSeconds > 3600 ||
+    intervalSeconds % 30 !== 0 ||
     (!labelIds.length && !randomCount) ||
     (randomCount && (!Number.isInteger(randomCount) || randomCount < 1 || randomCount > 500))
   ) {
@@ -786,6 +791,7 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
       instanceId: instance.id,
       message,
       status: 'queued',
+      intervalSeconds,
       Recipients: { create: contacts.map(({ remoteJid }) => ({ remoteJid })) },
     },
     include: { _count: { select: { Recipients: true } } },
@@ -814,7 +820,13 @@ export async function processBulkCampaignQueue() {
       data: { status: 'queued' },
     });
     const recipient = await prismaRepository.bulkCampaignRecipient.findFirst({
-      where: { status: 'queued', Campaign: { status: { in: ['queued', 'processing'] } } },
+      where: {
+        status: 'queued',
+        Campaign: {
+          status: { in: ['queued', 'processing'] },
+          OR: [{ nextSendAt: null }, { nextSendAt: { lte: new Date() } }],
+        },
+      },
       include: { Campaign: { include: { Instance: { select: { name: true } } } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -861,6 +873,10 @@ export async function processBulkCampaignQueue() {
         data: { status: 'failed', error: String(error).slice(0, 500) },
       });
     }
+    await prismaRepository.bulkCampaign.update({
+      where: { id: recipient.campaignId },
+      data: { nextSendAt: new Date(Date.now() + recipient.Campaign.intervalSeconds * 1000) },
+    });
     const remaining = await prismaRepository.bulkCampaignRecipient.count({
       where: { campaignId: recipient.campaignId, status: 'queued' },
     });

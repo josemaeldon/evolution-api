@@ -305,6 +305,8 @@ model BulkCampaign {
   id        String   @id @default(cuid())
   message   String   @db.Text
   status    String   @default("queued") @db.VarChar(20)
+  intervalSeconds Int @default(30) @db.Integer
+  nextSendAt DateTime? @db.Timestamp
   instanceId String
   createdAt DateTime @default(now()) @db.Timestamp
   updatedAt DateTime @updatedAt @db.Timestamp

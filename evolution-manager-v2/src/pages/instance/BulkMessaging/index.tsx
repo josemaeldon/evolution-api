@@ -10,10 +10,11 @@ import { useInstance } from "@/contexts/InstanceContext";
 import { saasApi } from "@/lib/queries/saas";
 
 type Label = { id: string; name: string; color: string };
-type Campaign = { id: string; status: string; message: string; createdAt: string; counts: Record<string, number> };
+type Campaign = { id: string; status: string; message: string; intervalSeconds: number; createdAt: string; counts: Record<string, number> };
 type Organization = { labels: Label[] };
 
 const statusLabel: Record<string, string> = { queued: "Na fila", processing: "Em andamento", paused: "Pausada", completed: "Concluída" };
+const intervalOptions = [30, 60, 120, 300, 600, 900, 1800, 3600];
 const messageVariables = [
   { token: "{{nome}}", label: "Nome completo", example: "Maria Silva" },
   { token: "{{primeiro_nome}}", label: "Primeiro nome", example: "Maria" },
@@ -25,6 +26,7 @@ export default function BulkMessaging() {
   const { instance } = useInstance();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
+  const [intervalSeconds, setIntervalSeconds] = useState(30);
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [randomCount, setRandomCount] = useState("");
@@ -52,8 +54,10 @@ export default function BulkMessaging() {
         message: message.trim(),
         labelIds: mode === "labels" ? selectedLabels : [],
         randomCount: mode === "random" ? Number(randomCount) : 0,
+        intervalSeconds,
       });
       setMessage("");
+      setIntervalSeconds(30);
       setConfirmedConsent(false);
       setSelectedLabels([]);
       setRandomCount("");
@@ -84,7 +88,7 @@ export default function BulkMessaging() {
       textarea.setSelectionRange(start + token.length, start + token.length);
     });
   };
-  const previewMessage = messageVariables.reduce((preview, variable) => preview.replaceAll(variable.token, variable.example), message);
+  const previewMessage = messageVariables.reduce((preview, variable) => preview.split(variable.token).join(variable.example), message);
 
   return (
     <section className="mx-auto max-w-5xl space-y-6">
@@ -95,7 +99,7 @@ export default function BulkMessaging() {
       <div className="space-y-4 rounded-lg border bg-card p-4">
         <div>
           <h2 className="font-semibold">Nova campanha</h2>
-          <p className="mt-1 text-xs text-muted-foreground">O sistema envia um destinatário a cada 30 segundos. Esse limite organiza a fila e não garante que o WhatsApp não aplique restrições.</p>
+          <p className="mt-1 text-xs text-muted-foreground">A fila respeita o intervalo fixo escolhido entre 30 segundos e 1 hora. A cadência não garante que o WhatsApp não aplique restrições.</p>
         </div>
         <div className="flex gap-2">
           <Button type="button" variant={mode === "labels" ? "default" : "outline"} onClick={() => setMode("labels")}>
@@ -104,6 +108,23 @@ export default function BulkMessaging() {
           <Button type="button" variant={mode === "random" ? "default" : "outline"} onClick={() => setMode("random")}>
             Seleção aleatória
           </Button>
+        </div>
+        <div className="max-w-xs">
+          <label htmlFor="campaignInterval" className="mb-1 block text-sm font-medium">
+            Intervalo entre mensagens
+          </label>
+          <select
+            id="campaignInterval"
+            value={intervalSeconds}
+            onChange={(event) => setIntervalSeconds(Number(event.target.value))}
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+            {intervalOptions.map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {seconds < 60 ? `${seconds} segundos` : `${seconds / 60} minuto${seconds === 60 ? "" : "s"}`}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted-foreground">Intervalo fixo de 30 segundos a 1 hora, em passos de 30 segundos.</p>
         </div>
         {mode === "labels" ? (
           <div className="flex flex-wrap gap-3">
@@ -172,7 +193,8 @@ export default function BulkMessaging() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{statusLabel[campaign.status] || campaign.status}</span>
                     <span className="text-xs text-muted-foreground">
-                      {campaign.counts?.sent || 0}/{total} enviados · {campaign.counts?.failed || 0} falhas
+                      {campaign.counts?.sent || 0}/{total} enviados · {campaign.counts?.failed || 0} falhas · a cada{" "}
+                      {campaign.intervalSeconds < 60 ? `${campaign.intervalSeconds}s` : `${campaign.intervalSeconds / 60} min`}
                     </span>
                   </div>
                   <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{campaign.message}</p>
