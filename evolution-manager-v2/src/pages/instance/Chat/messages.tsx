@@ -20,6 +20,7 @@ import { ChatVoiceRecorder } from "@/components/chat-voice-recorder";
 import { ChatInteractiveComposer } from "@/components/chat-interactive-composer";
 import { ChatInteractiveMessage } from "@/components/chat-interactive-message";
 import { ChatEmojiPicker } from "@/components/chat-emoji-picker";
+import { ChatContactMessage } from "@/components/chat-contact-message";
 
 import { useInstance } from "@/contexts/InstanceContext";
 
@@ -237,6 +238,7 @@ const messagePreview = (message: Message): string =>
     videoMessage: "Vídeo",
     audioMessage: "Áudio",
     documentMessage: "Documento",
+    contactMessage: "Contato",
     locationMessage: "Localização",
     stickerMessage: "Figurinha",
     reactionMessage: message.message?.reactionMessage?.text ? `Reação ${message.message.reactionMessage.text}` : "Reação removida",
@@ -297,23 +299,16 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
         return <ChatInteractiveMessage message={message} />;
       }
       if (message.message.contactMessage) {
-        const contactMsg = message.message.contactMessage;
-        return (
-          <div className="p-3 bg-muted rounded-lg max-w-xs">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="text-xl">👤</div>
-              <span className="font-medium">Contact</span>
-            </div>
-            {contactMsg.displayName && <p className="text-sm font-medium">{contactMsg.displayName}</p>}
-            {contactMsg.vcard && <p className="text-xs text-muted-foreground">Contact card</p>}
-          </div>
-        );
+        return <ChatContactMessage contact={message.message.contactMessage} fromMe={message.key.fromMe} />;
       }
 
       return <span>{getMessageText(message.message)}</span>;
 
     case "extendedTextMessage":
       return <span>{message.message.conversation ?? message.message.extendedTextMessage?.text}</span>;
+
+    case "contactMessage":
+      return <ChatContactMessage contact={message.message.contactMessage} fromMe={message.key.fromMe} />;
 
     case "locationMessage": {
       const location = message.message.locationMessage;

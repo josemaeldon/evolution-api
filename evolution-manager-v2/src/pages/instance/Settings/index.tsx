@@ -8,7 +8,6 @@ import { z } from "zod";
 import { Button } from "@evoapi/design-system/button";
 import { Form, FormInput, FormSwitch } from "@/components/ui/form";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { SicoobSettings } from "@/components/sicoob-settings";
 import { Separator } from "@evoapi/design-system/separator";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -163,7 +162,6 @@ function Settings() {
           </div>
         </form>
       </Form>
-      {instance?.name && <SicoobSettings instanceName={instance.name} />}
     </>
   );
 }

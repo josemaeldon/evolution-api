@@ -166,6 +166,7 @@ function InstanceSidebar() {
         title: t("sidebar.integrations"),
         icon: Zap,
         children: [
+          { id: "charges", title: "Cobranças", path: "charges" },
           { id: "evoai", title: t("sidebar.evoai"), path: "evoai" },
           { id: "n8n", title: t("sidebar.n8n"), path: "n8n" },
           { id: "evolutionBot", title: t("sidebar.evolutionBot"), path: "evolutionBot" },

@@ -2,7 +2,7 @@ import { Avatar, AvatarImage } from "@evoapi/design-system/avatar";
 import { Button } from "@evoapi/design-system/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@evoapi/design-system/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ClipboardList, LayoutDashboard, LogOut, Menu, MessageCircle, UserRound } from "lucide-react";
+import { ClipboardList, CreditCard, LayoutDashboard, LogOut, Menu, MessageCircle, UserRound } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +11,7 @@ import { useFetchInstance } from "@/lib/queries/instance/fetchInstance";
 import { logout } from "@/lib/queries/token";
 import { CLOUD_BR_CHAT_MARK } from "@/lib/branding";
 import { signOutManager, useManagerAccount } from "@/lib/queries/saas";
+import { isFeatureEnabled } from "@/lib/provider/features";
 
 import { LanguageToggle } from "./language-toggle";
 import { ModeToggle } from "./mode-toggle";
@@ -56,6 +57,11 @@ function Header({ instanceId }: { instanceId?: string }) {
             <DropdownMenuItem onClick={() => navigate(`/manager/instance/${instanceId}/forms`)}>
               <ClipboardList className="mr-2 h-4 w-4" /> Formulários
             </DropdownMenuItem>
+            {role !== "user" && isFeatureEnabled("charges") && (
+              <DropdownMenuItem onClick={() => navigate(`/manager/instance/${instanceId}/charges`)}>
+                <CreditCard className="mr-2 h-4 w-4" /> Cobranças
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}

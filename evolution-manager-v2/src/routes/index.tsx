@@ -8,6 +8,7 @@ import { MainLayout } from "@/layout/MainLayout";
 
 import Dashboard from "@/pages/Dashboard";
 import { Chat } from "@/pages/instance/Chat";
+import { Charges } from "@/pages/instance/Charges";
 import { Chatwoot } from "@/pages/instance/Chatwoot";
 import { DashboardInstance } from "@/pages/instance/DashboardInstance";
 import { Dify } from "@/pages/instance/Dify";
@@ -148,6 +149,16 @@ const router = createBrowserRouter([
       <ProtectedRoute feature="settings">
         <InstanceLayout>
           <Settings />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/charges",
+    element: (
+      <ProtectedRoute feature="charges">
+        <InstanceLayout>
+          <Charges />
         </InstanceLayout>
       </ProtectedRoute>
     ),

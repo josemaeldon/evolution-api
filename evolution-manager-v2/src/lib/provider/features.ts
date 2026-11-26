@@ -6,6 +6,7 @@ export const FEATURES = {
   dashboard: { api: true, go: true },
   chat: { api: true, go: false },
   settings: { api: true, go: true },
+  charges: { api: true, go: false },
   proxy: { api: true, go: true },
   webhook: { api: true, go: true },
   websocket: { api: true, go: false },

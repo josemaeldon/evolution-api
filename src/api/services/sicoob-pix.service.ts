@@ -212,13 +212,33 @@ export async function createSicoobCharge(
   await prismaRepository.pixPaymentLink.create({
     data: { id, instanceId: instance.id, provider: 'sicoob', txid, remoteJid, charge },
   });
-  await sendMessageController.sendText(
-    { instanceName: instance.name },
-    {
-      number: remoteJid.split('@')[0],
-      text: `*Cobrança Pix Sicoob*\nValor: R$ ${amount.replace('.', ',')}\n${description ? `${description}\n` : ''}Pague pelo link: ${paymentUrl}`,
-    },
-  );
+  const number = remoteJid.split('@')[0];
+  let buttonSent = false;
+  try {
+    await sendMessageController.sendButtons(
+      { instanceName: instance.name },
+      {
+        number,
+        title: 'Cobrança Pix Sicoob',
+        description: [`Valor: R$ ${amount.replace('.', ',')}`, description].filter(Boolean).join('\n'),
+        buttons: [{ type: 'url', displayText: 'Abrir e Pagar', url: paymentUrl }],
+      },
+    );
+    buttonSent = true;
+  } catch (error) {
+    logger.warn(`Sicoob URL button could not be sent for charge ${txid}: ${String(error)}`);
+  }
+
+  // Some WhatsApp clients do not render native URL buttons. Keep the payment reachable on Android, iOS and Web.
+  try {
+    await sendMessageController.sendText(
+      { instanceName: instance.name },
+      { number, text: `Se o botão “Abrir e Pagar” não aparecer, use este link:\n${paymentUrl}` },
+    );
+  } catch (error) {
+    if (!buttonSent) throw error;
+    logger.warn(`Sicoob URL fallback could not be sent for charge ${txid}: ${String(error)}`);
+  }
   return { id, txid, paymentUrl, amount };
 }
 

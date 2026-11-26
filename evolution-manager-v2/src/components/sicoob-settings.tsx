@@ -101,10 +101,10 @@ export function SicoobSettings({ instanceName }: { instanceName: string }) {
   };
 
   return (
-    <form onSubmit={save} className="mt-8 space-y-5 rounded-xl border p-4 sm:p-6">
+    <form onSubmit={save} className="space-y-5 rounded-xl border p-4 sm:p-6">
       <div>
-        <h3 className="text-lg font-medium">Integração Pix Sicoob</h3>
-        <p className="text-sm text-muted-foreground">Cobranças no chat com confirmação automática e comprovante PDF.</p>
+        <h1 className="text-lg font-medium">Cobranças</h1>
+        <p className="text-sm text-muted-foreground">Configure o Pix Sicoob para enviar cobranças no chat com confirmação automática e comprovante PDF.</p>
       </div>
       <label className="flex items-center gap-2 text-sm">
         <input
