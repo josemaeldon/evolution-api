@@ -1,3 +1,4 @@
+import "./style.css";
 import { Copy, Forward, MoreHorizontal, Reply, Send, Trash2, User, X } from "lucide-react";
 import { ReactNode, RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +36,7 @@ import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
 // Import components from EmbedChatMessage for attachment functionality
 import { MediaOptions } from "../EmbedChatMessage/InputMessage/media-options";
 import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
+import { useChatPresence } from "./use-chat-presence";
 
 type MessagesProps = {
   contacts?: { remoteJid: string; pushName?: string; profilePicUrl?: string }[];
@@ -480,6 +482,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   const { sendAudio: sendAudioMutation } = useSendAudio();
 
   const { remoteJid } = useParams<{ remoteJid: string }>();
+  const { contactTyping, updateTyping, stopTyping } = useChatPresence(instance?.name, instance?.token, instance?.integration, remoteJid);
 
   useEffect(() => setRecordingActive(false), [remoteJid]);
 
@@ -580,6 +583,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
 
   // Handle message sending (decides between text or media)
   const sendMessage = async () => {
+    stopTyping();
     if (selectedMedia) {
       await sendMediaMessage();
     } else {
@@ -598,6 +602,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
   // Handle input change
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessageText(e.target.value);
+    updateTyping(e.target.value);
     handleTextareaChange();
   };
   const { data: chat } = useFindChat({
@@ -831,6 +836,10 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
     if (container.scrollHeight <= container.clientHeight + 100 && hasOlder && !loadingOlder) loadOlder();
   }, [allMessages, messages, scrollToBottom, hasOlder, loadingOlder, loadOlder, olderPages.length]);
 
+  useEffect(() => {
+    if (contactTyping && nearBottomRef.current) scrollToBottom();
+  }, [contactTyping, scrollToBottom]);
+
   // Clear selected media and real-time messages when switching chats
   useEffect(() => {
     setSelectedMedia(null);
@@ -1047,6 +1056,15 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
               {group.messages.map((message) => (message.key.fromMe ? renderBubbleRight(message) : renderBubbleLeft(message)))}
             </div>
           ))}
+          {contactTyping && (
+            <div className="flex justify-start py-1" role="status" aria-label={`${headerName} está digitando`}>
+              <div className="chat-typing-bubble rounded-lg border bg-muted px-3 py-2" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          )}
           <div ref={lastMessageRef as never} />
         </div>
         <div className="flex-shrink-0 border-t bg-background p-3">
@@ -1089,6 +1107,7 @@ function Messages({ contacts = [], headerNameOverride, headerActions, textareaRe
                   ref={textareaRef}
                   value={messageText}
                   onChange={handleInputChange}
+                  onBlur={stopTyping}
                   onKeyDown={handleKeyDown}
                   disabled={isSending}
                   style={{ height: textareaHeight }}

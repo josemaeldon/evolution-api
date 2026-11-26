@@ -51,6 +51,7 @@ function Chat() {
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ChatKind>("contacts");
   const [contactsOpen, setContactsOpen] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
   const [contactFormMode, setContactFormMode] = useState<ContactFormMode>(null);
@@ -92,6 +93,10 @@ function Chat() {
   const { instanceId, remoteJid } = useParams<{ instanceId: string; remoteJid: string }>();
   const navigate = useNavigate();
   activeChatRef.current = remoteJid;
+
+  useEffect(() => {
+    if (remoteJid?.endsWith("@g.us")) setKind("groups");
+  }, [remoteJid]);
 
   useEffect(() => {
     seenMessageIdsRef.current.clear();
@@ -202,6 +207,7 @@ function Chat() {
   };
 
   const handleChat = (jid: string) => {
+    setKind(jid.endsWith("@g.us") ? "groups" : "contacts");
     activeChatRef.current = jid;
     realtimeUnreadIdsRef.current.delete(jid);
     setUnreadOverrides((current) => ({ ...current, [jid]: 0 }));
@@ -209,6 +215,13 @@ function Chat() {
   };
 
   const handleBack = () => navigate(`/manager/instance/${instanceId}/chat`);
+
+  const handleKindChange = (nextKind: ChatKind) => {
+    setKind(nextKind);
+    if (remoteJid && (remoteJid.endsWith("@g.us") !== (nextKind === "groups"))) {
+      navigate(`/manager/instance/${instanceId}/chat`);
+    }
+  };
 
   const refreshChats = () => {
     queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] }).catch(console.error);
@@ -298,6 +311,22 @@ function Chat() {
         .includes(normalizedSearch) ||
       (searchDigits.length > 0 && formatJid(contact.remoteJid).includes(searchDigits)),
   );
+  const normalizedContactSearch = contactSearch
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const contactSearchDigits = contactSearch.replace(/\D/g, "");
+  const managedContacts = contactList.filter(
+    (contact) =>
+      !normalizedContactSearch ||
+      (contact.pushName || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .includes(normalizedContactSearch) ||
+      (contactSearchDigits.length > 0 && formatJid(contact.remoteJid).includes(contactSearchDigits)),
+  );
 
   const visibleChats = useMemo(() => {
     const isContacts = kind === "contacts";
@@ -337,11 +366,11 @@ function Chat() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" variant={kind === "contacts" ? "secondary" : "ghost"} className="h-8" onClick={() => setKind("contacts")}>
+            <Button type="button" size="sm" variant={kind === "contacts" ? "secondary" : "ghost"} className="h-8" onClick={() => handleKindChange("contacts")}>
               <User className="mr-1 h-4 w-4" />
               {t("chat.tabs.contacts")}
             </Button>
-            <Button type="button" size="sm" variant={kind === "groups" ? "secondary" : "ghost"} className="h-8" onClick={() => setKind("groups")}>
+            <Button type="button" size="sm" variant={kind === "groups" ? "secondary" : "ghost"} className="h-8" onClick={() => handleKindChange("groups")}>
               <Users className="mr-1 h-4 w-4" />
               {t("chat.tabs.groups")}
             </Button>
@@ -503,16 +532,32 @@ function Chat() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={contactsOpen} onOpenChange={setContactsOpen}>
+      <Dialog
+        open={contactsOpen}
+        onOpenChange={(open) => {
+          setContactsOpen(open);
+          if (!open) setContactSearch("");
+        }}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
           <DialogTitle>Gerenciar contatos</DialogTitle>
           <DialogDescription>Contatos salvos nesta instância.</DialogDescription>
           <Button type="button" size="sm" className="w-fit" onClick={() => openContactForm("contact")}>
             <Plus className="mr-2 h-4 w-4" /> Adicionar contato
           </Button>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              aria-label="Pesquisar contatos salvos"
+              placeholder="Pesquisar por nome ou número"
+              value={contactSearch}
+              onChange={(event) => setContactSearch(event.target.value)}
+              className="pl-9"
+            />
+          </div>
           <div className="space-y-2">
-            {contactList.length === 0 && <p className="text-sm text-muted-foreground">Nenhum contato encontrado.</p>}
-            {contactList.map((contact) => (
+            {managedContacts.length === 0 && <p className="text-sm text-muted-foreground">Nenhum contato encontrado.</p>}
+            {managedContacts.map((contact) => (
               <div key={contact.remoteJid} className="flex items-center gap-2 rounded-md border p-2">
                 <Avatar className="h-9 w-9 flex-shrink-0">
                   <AvatarImage src={contact.profilePicUrl} alt={contact.pushName || formatJid(contact.remoteJid)} />

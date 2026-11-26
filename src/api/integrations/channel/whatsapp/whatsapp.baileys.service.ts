@@ -1410,7 +1410,7 @@ export class BaileysStartupService extends ChannelStartupService {
               this.logger.info(`Update readed messages duplicated ignored [avoid deadlock]: ${messageKey}`);
             }
 
-            if (isMedia) {
+            if (isMedia && !isJidGroup(messageRaw.key.remoteJid)) {
               try {
                 if (isVideo && !this.configService.get<S3>('S3').SAVE_VIDEO) {
                   this.logger.warn('Video upload is disabled. Skipping video upload.');
@@ -2543,7 +2543,7 @@ export class BaileysStartupService extends ChannelStartupService {
       if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
         const msg = await this.prismaRepository.message.create({ data: messageRaw });
 
-        if (isMedia) {
+        if (isMedia && !isJidGroup(messageRaw.key.remoteJid)) {
           try {
             if (isVideo && !this.configService.get<S3>('S3').SAVE_VIDEO) {
               throw new Error('Video upload is disabled.');
@@ -2681,6 +2681,13 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       const sender = isWA.jid;
+
+      // A zero delay lets interactive clients manage the composing/paused lifecycle.
+      if (data.delay === 0) {
+        await this.client.presenceSubscribe(sender);
+        await this.client.sendPresenceUpdate(data.presence, sender);
+        return { presence: data.presence };
+      }
 
       if (data?.delay && data?.delay > 20000) {
         let remainingDelay = data?.delay;

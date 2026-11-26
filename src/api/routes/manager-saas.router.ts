@@ -33,6 +33,69 @@ import { promisify } from 'util';
 const router = Router();
 const scrypt = promisify(scryptCallback);
 const loginAttempts = new Map<string, { count: number; until: number }>();
+const mediaExtensions = (extensions: string[]): Prisma.MediaWhereInput[] =>
+  extensions.map((extension) => ({ fileName: { endsWith: `.${extension}`, mode: 'insensitive' } }));
+const stickerFilter: Prisma.MediaWhereInput = { type: { in: ['sticker', 'stickerMessage'] } };
+const imageFilter: Prisma.MediaWhereInput = {
+  AND: [
+    { NOT: stickerFilter },
+    {
+      OR: [
+        { type: { in: ['image', 'imageMessage'] } },
+        { mimetype: { startsWith: 'image/', mode: 'insensitive' } },
+        ...mediaExtensions([
+          'jpg',
+          'jpeg',
+          'png',
+          'gif',
+          'webp',
+          'heic',
+          'heif',
+          'avif',
+          'bmp',
+          'tif',
+          'tiff',
+          'svg',
+          'jxl',
+        ]),
+      ],
+    },
+  ],
+};
+const videoFilter: Prisma.MediaWhereInput = {
+  OR: [
+    { type: { in: ['video', 'videoMessage', 'ptvMessage'] } },
+    { mimetype: { startsWith: 'video/', mode: 'insensitive' } },
+    ...mediaExtensions(['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', '3gp']),
+  ],
+};
+const audioFilter: Prisma.MediaWhereInput = {
+  OR: [
+    { type: { in: ['audio', 'audioMessage'] } },
+    { mimetype: { startsWith: 'audio/', mode: 'insensitive' } },
+    ...mediaExtensions(['mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'flac', 'amr']),
+  ],
+};
+const documentFilter: Prisma.MediaWhereInput = {
+  AND: [
+    { NOT: { OR: [imageFilter, videoFilter, audioFilter, stickerFilter] } },
+    {
+      OR: [
+        { type: { in: ['document', 'documentMessage'] } },
+        { mimetype: { startsWith: 'application/', mode: 'insensitive' } },
+        { mimetype: { startsWith: 'text/', mode: 'insensitive' } },
+      ],
+    },
+  ],
+};
+const mediaTypeFilters = new Map<string, Prisma.MediaWhereInput>([
+  ['image', imageFilter],
+  ['video', videoFilter],
+  ['audio', audioFilter],
+  ['document', documentFilter],
+  ['sticker', stickerFilter],
+  ['other', { NOT: { OR: [imageFilter, videoFilter, audioFilter, documentFilter, stickerFilter] } }],
+]);
 const fail = (message: string) => ({ error: message });
 const normalizeEmail = (email: unknown) =>
   String(email || '')
@@ -282,7 +345,7 @@ router.get('/media', async (req, res) => {
   const instanceId = String(req.query.instanceId || '').trim();
   const where: Prisma.MediaWhereInput = {
     Instance: { is: { companyId, ...(instanceId ? { id: instanceId } : {}) } },
-    ...(type ? { type } : {}),
+    ...(type ? mediaTypeFilters.get(type) || { type } : {}),
     ...(search
       ? {
           OR: [

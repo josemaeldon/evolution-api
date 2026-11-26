@@ -466,7 +466,7 @@ export class EvolutionStartupService extends ChannelStartupService {
           }
         | undefined;
 
-      if (base64 || file || audioFile) {
+      if ((base64 || file || audioFile) && !messageRaw.key.remoteJid.endsWith('@g.us')) {
         try {
           // Verificação adicional para garantir que há conteúdo de mídia real
           const hasRealMedia = this.hasValidMediaContent(messageRaw);

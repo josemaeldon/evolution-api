@@ -148,6 +148,7 @@ export default function FilesAndMedia() {
             <option value="audio">Áudios</option>
             <option value="document">Documentos</option>
             <option value="sticker">Figurinhas</option>
+            <option value="other">Outros</option>
           </select>
           <Button type="button" variant="destructive" disabled={!selectedIds.length || busy} onClick={deleteSelected}>
             <Trash2 className="mr-2 h-4 w-4" /> Excluir selecionados ({selectedIds.length})
