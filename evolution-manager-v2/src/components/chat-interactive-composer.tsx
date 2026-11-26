@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/queries/api";
 import { ChatForm } from "@/types/chat-form";
 
-type Kind = "buttons" | "copy" | "pix" | "list" | "poll" | "flow" | "form";
+type Kind = "buttons" | "copy" | "pix" | "sicoob" | "list" | "poll" | "flow" | "form";
 
 type Props = {
   instanceName: string;
@@ -23,6 +23,7 @@ const routes: Record<Kind, string> = {
   buttons: "sendButtons",
   copy: "sendButtons",
   pix: "sendButtons",
+  sicoob: "sendButtons",
   list: "sendList",
   poll: "sendPoll",
   flow: "sendFlow",
@@ -33,6 +34,7 @@ const labels: Record<Kind, string> = {
   buttons: "Botões",
   copy: "Copiar código",
   pix: "Pix copia e cola",
+  sicoob: "Cobrança Sicoob",
   list: "Lista",
   poll: "Enquete",
   flow: "Flow do WhatsApp",
@@ -43,7 +45,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
   const business = integration === "WHATSAPP-BUSINESS";
   const supported = business || integration === "WHATSAPP-BAILEYS";
   const group = remoteJid.endsWith("@g.us");
-  const kinds: Kind[] = group ? ["poll"] : business ? ["buttons", "list", "flow", "form"] : ["buttons", "copy", "pix", "list", "poll", "form"];
+  const kinds: Kind[] = group ? ["poll"] : business ? ["buttons", "list", "flow", "form"] : ["buttons", "copy", "pix", "sicoob", "list", "poll", "form"];
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [formId, setFormId] = useState("");
@@ -87,15 +89,17 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
       ? Boolean(selectedForm)
       : kind === "flow"
         ? Boolean(flowId.trim() && body.trim() && cta.trim())
-        : kind === "pix"
-          ? Boolean(title.trim() && pixKey.trim() && merchantName.trim() && merchantCity.trim() && /^\d{1,6}[.,]\d{2}$/.test(amount.trim()) && Number(amount.replace(",", ".")) > 0)
-          : kind === "copy"
-            ? Boolean(title.trim() && copyCode.trim() && (!paymentUrl.trim() || validPaymentUrl))
-            : kind === "poll"
-              ? Boolean(title.trim() && entries.length >= 2 && selectableCount >= 1 && selectableCount <= entries.length)
-              : kind === "list"
-                ? Boolean(title.trim() && body.trim() && cta.trim() && entries.length > 0)
-                : Boolean(title.trim() && entries.length > 0);
+        : kind === "sicoob"
+          ? Boolean(/^\d{1,8}[.,]\d{2}$/.test(amount.trim()) && Number(amount.replace(",", ".")) > 0 && body.length <= 140)
+          : kind === "pix"
+            ? Boolean(title.trim() && pixKey.trim() && merchantName.trim() && merchantCity.trim() && /^\d{1,6}[.,]\d{2}$/.test(amount.trim()) && Number(amount.replace(",", ".")) > 0)
+            : kind === "copy"
+              ? Boolean(title.trim() && copyCode.trim() && (!paymentUrl.trim() || validPaymentUrl))
+              : kind === "poll"
+                ? Boolean(title.trim() && entries.length >= 2 && selectableCount >= 1 && selectableCount <= entries.length)
+                : kind === "list"
+                  ? Boolean(title.trim() && body.trim() && cta.trim() && entries.length > 0)
+                  : Boolean(title.trim() && entries.length > 0);
 
   const send = async () => {
     if (!valid || sendingRef.current) return;
@@ -108,6 +112,15 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
     const number = remoteJid.split("@")[0];
     let charge: { code: string; paymentUrl: string; amount: string } | null = null;
     try {
+      if (kind === "sicoob") {
+        await api.post(`/pix/create-sicoob/${instanceName}`, { remoteJid, amount: amount.trim().replace(",", "."), description: body.trim() }, { headers: { apikey: token } });
+        pendingRequestRef.current = null;
+        await Promise.all([queryClient.invalidateQueries({ queryKey: ["chats", "findMessages"] }), queryClient.invalidateQueries({ queryKey: ["chats", "findChats"] })]);
+        setOpen(false);
+        setAmount("");
+        setBody("");
+        return;
+      }
       if (kind === "pix") {
         const response = await api.post(
           `/pix/create/${instanceName}`,
@@ -247,11 +260,11 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
               <Input aria-label="Tela inicial opcional" placeholder="ID da tela inicial (opcional)" value={screenId} onChange={(event) => setScreenId(event.target.value)} />
             </>
           )}
-          {(kind === "list" || kind === "flow" || kind === "copy" || kind === "pix") && (
+          {(kind === "list" || kind === "flow" || kind === "copy" || kind === "pix" || kind === "sicoob") && (
             <Textarea
               aria-label="Texto da mensagem"
-              placeholder={kind === "copy" || kind === "pix" ? "Descrição da cobrança (opcional)" : "Texto da mensagem"}
-              maxLength={1024}
+              placeholder={kind === "copy" || kind === "pix" || kind === "sicoob" ? "Descrição da cobrança (opcional)" : "Texto da mensagem"}
+              maxLength={kind === "sicoob" ? 140 : 1024}
               value={body}
               onChange={(event) => setBody(event.target.value)}
             />
@@ -266,6 +279,12 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
               <p className="text-xs text-muted-foreground">O código Pix e a página de pagamento serão gerados automaticamente para esse valor. A confirmação do pagamento deve ser feita no banco.</p>
             </>
           )}
+          {kind === "sicoob" && (
+            <>
+              <Input aria-label="Valor da cobrança Sicoob" placeholder="Valor em reais (ex.: 25,00)" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
+              <p className="text-xs text-muted-foreground">O contato receberá um link de pagamento. Após a confirmação no Sicoob, o comprovante PDF será enviado nesta conversa.</p>
+            </>
+          )}
           {kind === "copy" && (
             <>
               <Textarea aria-label="Código para copiar" placeholder="Código para copiar" value={copyCode} onChange={(event) => setCopyCode(event.target.value)} />
@@ -274,7 +293,7 @@ export function ChatInteractiveComposer({ instanceName, token, integration, remo
               <p className="text-xs text-muted-foreground">O código será copiado exatamente como informado.</p>
             </>
           )}
-          {kind !== "flow" && kind !== "copy" && kind !== "pix" && kind !== "form" && (
+          {kind !== "flow" && kind !== "copy" && kind !== "pix" && kind !== "sicoob" && kind !== "form" && (
             <div className="grid gap-2">
               <span className="text-sm font-medium">{kind === "poll" ? "Opções" : kind === "list" ? "Itens da lista" : "Botões"}</span>
               {items.map((item, index) => (

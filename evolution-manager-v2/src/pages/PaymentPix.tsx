@@ -15,6 +15,11 @@ type Charge = {
   merchantCity: string;
   description?: string;
   txid: string;
+  provider?: string;
+  status?: string;
+  paidAt?: string;
+  expiresAt?: string;
+  receiptSent?: boolean;
 };
 
 export default function PaymentPix() {
@@ -29,16 +34,22 @@ export default function PaymentPix() {
     const path = instanceId && id ? `/pix/${encodeURIComponent(instanceId)}/${encodeURIComponent(id)}` : token ? `/pix/${encodeURIComponent(token)}` : null;
     if (!path) return;
     let active = true;
-    axios
-      .get<Charge>(path)
-      .then(({ data }) => {
-        if (active) setCharge(data);
-      })
-      .catch(() => {
-        if (active) setError("Este link de pagamento é inválido ou não está mais disponível.");
-      });
+    const fetchCharge = () =>
+      axios
+        .get<Charge>(path)
+        .then(({ data }) => {
+          if (active) setCharge(data);
+        })
+        .catch(() => {
+          if (active) setError("Este link de pagamento é inválido ou não está mais disponível.");
+        });
+    fetchCharge();
+    const timer = window.setInterval(() => {
+      fetchCharge();
+    }, 10000);
     return () => {
       active = false;
+      window.clearInterval(timer);
     };
   }, [token, instanceId, id]);
 
@@ -80,6 +91,17 @@ export default function PaymentPix() {
 
           {charge && (
             <>
+              {charge.provider === "sicoob" && (
+                <p role="status" className="rounded-lg border p-3 text-sm">
+                  {charge.status === "paid"
+                    ? charge.receiptSent
+                      ? "Pagamento confirmado pelo Sicoob. O comprovante foi enviado na conversa."
+                      : "Pagamento confirmado pelo Sicoob. O comprovante será enviado na conversa."
+                    : charge.expiresAt && Date.now() > new Date(charge.expiresAt).getTime()
+                      ? "Esta cobrança expirou. Solicite um novo link."
+                      : "Aguardando pagamento. Esta página será atualizada automaticamente."}
+                </p>
+              )}
               <section className="rounded-2xl border bg-muted/40 p-5 sm:p-6" aria-label="Valor solicitado">
                 <p className="text-sm text-muted-foreground">Valor solicitado</p>
                 <p className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">{Number(charge.amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</p>
@@ -119,7 +141,7 @@ export default function PaymentPix() {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Confira os dados do recebedor no aplicativo do seu banco antes de pagar. Esta página não confirma o pagamento automaticamente.
+                Confira os dados do recebedor no aplicativo do seu banco antes de pagar. {charge.provider !== "sicoob" && "Esta página não confirma o pagamento automaticamente."}
               </p>
             </>
           )}

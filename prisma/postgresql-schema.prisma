@@ -113,6 +113,7 @@ model Instance {
   Evoai                   Evoai[]
   EvoaiSetting            EvoaiSetting?
   PixPaymentLink          PixPaymentLink[]
+  SicoobPixConfig         SicoobPixConfig?
   ChatForm                ChatForm[]
 
   @@index([companyId])
@@ -167,9 +168,37 @@ model PixPaymentLink {
   instanceId String
   charge     Json     @db.JsonB
   createdAt  DateTime @default(now())
+  provider   String   @default("static") @db.VarChar(20)
+  txid       String?  @unique @db.VarChar(35)
+  remoteJid  String?  @db.VarChar(100)
+  status     String   @default("pending") @db.VarChar(20)
+  paidAt     DateTime?
+  endToEndId String?  @db.VarChar(100)
+  notifiedAt DateTime?
+  claimAt    DateTime?
   Instance   Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   @@index([instanceId])
+  @@index([provider, status])
+}
+
+model SicoobPixConfig {
+  instanceId           String   @id
+  clientId             String   @db.VarChar(255)
+  clientSecret         String   @db.Text
+  pixKey               String   @db.VarChar(77)
+  merchantName         String   @db.VarChar(100)
+  merchantCity         String   @db.VarChar(100)
+  tokenUrl             String   @db.VarChar(500)
+  apiUrl               String   @db.VarChar(500)
+  sandboxMode          Boolean  @default(false)
+  expiresIn            Int      @default(900)
+  certPem              String   @db.Text
+  keyPem               String   @db.Text
+  caPem                String?  @db.Text
+  webhookSecret        String   @db.VarChar(64)
+  updatedAt            DateTime @updatedAt
+  Instance             Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }
 
 model ChatForm {

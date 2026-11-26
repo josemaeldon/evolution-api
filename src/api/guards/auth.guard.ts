@@ -54,7 +54,7 @@ async function apikey(req: Request, _: Response, next: NextFunction) {
       if (
         (area === 'chat' && !USER_CHAT_ACTIONS.has(action)) ||
         (area === 'message' && action === 'sendStatus') ||
-        (area === 'pix' && action !== 'create') ||
+        (area === 'pix' && action !== 'create' && action !== 'create-sicoob') ||
         !['chat', 'message', 'pix', 'forms'].includes(area)
       ) {
         throw new ForbiddenException('Acesso restrito ao chat');
