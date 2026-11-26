@@ -1,7 +1,7 @@
 import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pause, Play, Send } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,18 @@ type Campaign = { id: string; status: string; message: string; createdAt: string
 type Organization = { labels: Label[] };
 
 const statusLabel: Record<string, string> = { queued: "Na fila", processing: "Em andamento", paused: "Pausada", completed: "Concluída" };
+const messageVariables = [
+  { token: "{{nome}}", label: "Nome completo", example: "Maria Silva" },
+  { token: "{{primeiro_nome}}", label: "Primeiro nome", example: "Maria" },
+  { token: "{{telefone}}", label: "Telefone", example: "5591999999999" },
+  { token: "{{etiquetas}}", label: "Etiquetas do contato", example: "Cliente VIP" },
+];
 
 export default function BulkMessaging() {
   const { instance } = useInstance();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
+  const messageRef = useRef<HTMLTextAreaElement>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [randomCount, setRandomCount] = useState("");
   const [mode, setMode] = useState<"labels" | "random">("labels");
@@ -65,6 +72,19 @@ export default function BulkMessaging() {
       toast.error(error?.response?.data?.error || "Não foi possível atualizar a campanha");
     }
   };
+  const insertVariable = (token: string) => {
+    const textarea = messageRef.current;
+    if (!textarea) return setMessage((current) => current + token);
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const nextMessage = `${message.slice(0, start)}${token}${message.slice(end)}`;
+    setMessage(nextMessage);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+  const previewMessage = messageVariables.reduce((preview, variable) => preview.replaceAll(variable.token, variable.example), message);
 
   return (
     <section className="mx-auto max-w-5xl space-y-6">
@@ -112,7 +132,22 @@ export default function BulkMessaging() {
           <label htmlFor="bulkMessage" className="mb-1 block text-sm font-medium">
             Mensagem
           </label>
-          <Textarea id="bulkMessage" rows={5} maxLength={4000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Escreva a mensagem da campanha" />
+          <Textarea ref={messageRef} id="bulkMessage" rows={5} maxLength={4000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Escreva a mensagem da campanha" />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Inserir variável:</span>
+            {messageVariables.map((variable) => (
+              <Button key={variable.token} type="button" size="sm" variant="outline" onClick={() => insertVariable(variable.token)} title={`${variable.label}: ${variable.token}`}>
+                {variable.label}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">As variáveis são substituídas para cada destinatário. Para etiquetas múltiplas, os nomes aparecem separados por vírgula.</p>
+          {message && (
+            <div className="mt-3 rounded-md bg-muted/60 p-3">
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Prévia com dados de exemplo</p>
+              <p className="whitespace-pre-wrap break-words text-sm">{previewMessage}</p>
+            </div>
+          )}
           <div className="mt-1 text-right text-xs text-muted-foreground">{message.length}/4000</div>
         </div>
         <label className="flex items-start gap-2 text-sm">

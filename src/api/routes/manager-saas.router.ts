@@ -828,12 +828,28 @@ export async function processBulkCampaignQueue() {
     try {
       const optedIn = await prismaRepository.contact.findFirst({
         where: { instanceId: recipient.Campaign.instanceId, remoteJid: recipient.remoteJid, marketingOptIn: true },
-        select: { id: true },
+        select: {
+          id: true,
+          pushName: true,
+          ManagerLabels: { select: { Label: { select: { name: true } } } },
+        },
       });
       if (!optedIn) throw new Error('Consentimento removido antes do envio');
+      const phone = recipient.remoteJid.split('@')[0];
+      const name = optedIn.pushName?.trim() || phone;
+      const variables: Record<string, string> = {
+        nome: name,
+        primeiro_nome: name.split(/\s+/)[0] || phone,
+        telefone: phone,
+        etiquetas: optedIn.ManagerLabels.map(({ Label }) => Label.name).join(', '),
+      };
+      const personalizedMessage = recipient.Campaign.message.replace(
+        /{{\s*(nome|primeiro_nome|telefone|etiquetas)\s*}}/gi,
+        (_, key: string) => variables[key.toLowerCase()],
+      );
       await sendMessageController.sendText(
         { instanceName: recipient.Campaign.Instance.name },
-        { number: recipient.remoteJid.split('@')[0], text: recipient.Campaign.message },
+        { number: phone, text: personalizedMessage },
       );
       await prismaRepository.bulkCampaignRecipient.update({
         where: { id: recipient.id },
