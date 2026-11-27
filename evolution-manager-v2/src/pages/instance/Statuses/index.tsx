@@ -237,7 +237,6 @@ function ContactStatuses() {
               <button
                 key={group.id}
                 type="button"
-                onClick={() => setSelectedContactId(group.id)}
                 onClick={() => { setActiveStatusIndex(0); setSelectedContactId(group.id); }}
                 className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${selectedContactId === group.id ? "bg-accent" : "hover:bg-accent/70"}`}>
                 <span className="rounded-full bg-gradient-to-tr from-amber-400 via-fuchsia-600 to-violet-600 p-[2px]">
