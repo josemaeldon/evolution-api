@@ -10,6 +10,7 @@ type DatePickerProps = {
   onChange: (value: string) => void;
   required?: boolean;
   disabled?: boolean;
+  inline?: boolean;
 };
 
 const formatDate = (date: Date) => `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
@@ -22,7 +23,7 @@ function parseDate(value: string): Date | null {
   return date.getFullYear() === Number(year) && date.getMonth() === Number(month) - 1 && date.getDate() === Number(day) ? date : null;
 }
 
-export function DatePicker({ id, value, onChange, required, disabled }: DatePickerProps) {
+export function DatePicker({ id, value, onChange, required, disabled, inline = false }: DatePickerProps) {
   const [open, setOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const date = parseDate(value) || new Date();
@@ -42,7 +43,7 @@ export function DatePicker({ id, value, onChange, required, disabled }: DatePick
   }, [value]);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
 
     const updatePosition = () => {
       const trigger = triggerRef.current;
@@ -79,7 +80,7 @@ export function DatePicker({ id, value, onChange, required, disabled }: DatePick
       window.visualViewport?.removeEventListener("resize", updatePosition);
       window.visualViewport?.removeEventListener("scroll", updatePosition);
     };
-  }, [open, visibleMonth]);
+  }, [inline, open, visibleMonth]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,9 +102,129 @@ export function DatePicker({ id, value, onChange, required, disabled }: DatePick
   const firstWeekday = (visibleMonth.getDay() + 6) % 7;
   const daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
   const selectedDate = parseDate(value);
+  const calendarPanel = (
+    <div
+      ref={popoverRef}
+      data-datepicker-calendar=""
+      role="dialog"
+      aria-label="Selecionar data"
+      className={inline
+        ? "relative z-50 mt-2 max-h-[min(70dvh,32rem)] w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border bg-popover p-3 text-popover-foreground shadow-lg"
+        : "fixed z-[100] max-h-[calc(100dvh-1rem)] w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border bg-popover p-3 text-popover-foreground shadow-lg"}
+      style={inline ? undefined : { top: popoverPosition.top, left: popoverPosition.left }}>
+      <div className="mb-3 flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Mês anterior"
+          onClick={() => {
+            const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1);
+            setVisibleMonth(date);
+            setYearInput(String(date.getFullYear()));
+          }}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <select
+          aria-label="Mês"
+          className="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
+          value={visibleMonth.getMonth()}
+          onChange={(event) => setVisibleMonth(new Date(visibleMonth.getFullYear(), Number(event.target.value), 1))}>
+          {Array.from({ length: 12 }, (_, month) => (
+            <option key={month} value={month}>
+              {new Date(2024, month, 1).toLocaleDateString("pt-BR", { month: "long" })}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="Ano"
+          className="h-9 w-[5.25rem] rounded-md border bg-background px-2 text-center text-sm"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={9999}
+          value={yearInput}
+          onChange={(event) => setYearInput(event.target.value.slice(0, 4))}
+          onBlur={() => {
+            const year = Number(yearInput);
+            if (!Number.isInteger(year) || year < 1 || year > 9999) {
+              setYearInput(String(visibleMonth.getFullYear()));
+              return;
+            }
+            setVisibleMonth(new Date(year, visibleMonth.getMonth(), 1));
+            setYearInput(String(year));
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Próximo mês"
+          onClick={() => {
+            const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
+            setVisibleMonth(date);
+            setYearInput(String(date.getFullYear()));
+          }}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="grid w-full grid-cols-7 text-center text-xs text-muted-foreground">
+        {["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map((day) => (
+          <span key={day} className="py-2" aria-label={day}>
+            {day}
+          </span>
+        ))}
+        {Array.from({ length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 }, (_, index) => {
+          const day = index - firstWeekday + 1;
+          if (day < 1 || day > daysInMonth) return <span key={`empty-${index}`} aria-hidden="true" />;
+
+          const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day);
+          const selected = selectedDate?.getFullYear() === date.getFullYear() && selectedDate.getMonth() === date.getMonth() && selectedDate.getDate() === date.getDate();
+          const today = new Date();
+          const isToday = today.getFullYear() === date.getFullYear() && today.getMonth() === date.getMonth() && today.getDate() === date.getDate();
+
+          return (
+            <button
+              key={day}
+              type="button"
+              aria-label={date.toLocaleDateString("pt-BR", { dateStyle: "full" })}
+              aria-pressed={selected}
+              onClick={() => {
+                onChange(formatDate(date));
+                setOpen(false);
+              }}
+              className={`mx-auto flex h-9 w-full max-w-9 items-center justify-center rounded-lg text-sm transition-colors hover:bg-accent ${selected ? "bg-primary text-primary-foreground hover:bg-primary/90" : isToday ? "border border-primary text-primary" : ""}`}>
+              {day}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex justify-between border-t pt-2">
+        <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }}>
+          Limpar
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            const today = new Date();
+            onChange(formatDate(today));
+            setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+            setYearInput(String(today.getFullYear()));
+            setOpen(false);
+          }}>
+          Hoje
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="w-full">
+    <div className={inline ? "relative w-full" : "w-full"}>
       <Button
         ref={triggerRef}
         id={id}
@@ -118,140 +239,7 @@ export function DatePicker({ id, value, onChange, required, disabled }: DatePick
         <CalendarDays className="h-4 w-4 text-muted-foreground" />
         <span className={value ? "" : "text-muted-foreground"}>{value || "Selecione uma data"}</span>
       </Button>
-      {open &&
-        createPortal(
-          <div
-            ref={popoverRef}
-            role="dialog"
-            aria-label="Selecionar data"
-            className="fixed z-[100] max-h-[calc(100dvh-1rem)] w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border bg-popover p-3 text-popover-foreground shadow-lg"
-            style={{ top: popoverPosition.top, left: popoverPosition.left }}>
-            <div className="mb-3 flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Mês anterior"
-                onClick={() => {
-                  const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1);
-                  setVisibleMonth(date);
-                  setYearInput(String(date.getFullYear()));
-                }}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <select
-                aria-label="Mês"
-                className="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
-                value={visibleMonth.getMonth()}
-                onChange={(event) => setVisibleMonth(new Date(visibleMonth.getFullYear(), Number(event.target.value), 1))}>
-                {Array.from({ length: 12 }, (_, month) => (
-                  <option key={month} value={month}>
-                    {new Date(2024, month, 1).toLocaleDateString("pt-BR", { month: "long" })}
-                  </option>
-                ))}
-              </select>
-              <input
-                aria-label="Ano"
-                className="h-9 w-[5.25rem] rounded-md border bg-background px-2 text-center text-sm"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={9999}
-                value={yearInput}
-                onChange={(event) => setYearInput(event.target.value.slice(0, 4))}
-                onBlur={() => {
-                  const year = Number(yearInput);
-                  if (!Number.isInteger(year) || year < 1 || year > 9999) {
-                    setYearInput(String(visibleMonth.getFullYear()));
-                    return;
-                  }
-                  setVisibleMonth(new Date(year, visibleMonth.getMonth(), 1));
-                  setYearInput(String(year));
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Próximo mês"
-                onClick={() => {
-                  const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1);
-                  setVisibleMonth(date);
-                  setYearInput(String(date.getFullYear()));
-                }}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="grid w-full grid-cols-7 text-center text-xs text-muted-foreground">
-              {["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map((day) => (
-                <span key={day} className="py-2" aria-label={day}>
-                  {day}
-                </span>
-              ))}
-              {Array.from({ length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 }, (_, index) => {
-                const day = index - firstWeekday + 1;
-                if (day < 1 || day > daysInMonth) {
-                  return <span key={`empty-${index}`} aria-hidden="true" />;
-                }
-
-                const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day);
-                const selected =
-                  selectedDate?.getFullYear() === date.getFullYear() &&
-                  selectedDate.getMonth() === date.getMonth() &&
-                  selectedDate.getDate() === date.getDate();
-                const today = new Date();
-                const isToday =
-                  today.getFullYear() === date.getFullYear() &&
-                  today.getMonth() === date.getMonth() &&
-                  today.getDate() === date.getDate();
-
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    aria-label={date.toLocaleDateString("pt-BR", { dateStyle: "full" })}
-                    aria-pressed={selected}
-                    onClick={() => {
-                      onChange(formatDate(date));
-                      setOpen(false);
-                    }}
-                    className={`mx-auto flex h-9 w-full max-w-9 items-center justify-center rounded-lg text-sm transition-colors hover:bg-accent ${selected ? "bg-primary text-primary-foreground hover:bg-primary/90" : isToday ? "border border-primary text-primary" : ""}`}>
-                    {day}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-2 flex justify-between border-t pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  onChange("");
-                  setOpen(false);
-                }}>
-                Limpar
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const today = new Date();
-                  onChange(formatDate(today));
-                  setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
-                  setYearInput(String(today.getFullYear()));
-                  setOpen(false);
-                }}>
-                Hoje
-              </Button>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {open && (inline ? calendarPanel : createPortal(calendarPanel, document.body))}
     </div>
   );
 }

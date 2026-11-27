@@ -260,7 +260,7 @@ export default function ChatForms() {
                                   <input type="checkbox" checked={editingAnswers[field.id] === true} onChange={(event) => setEditingAnswers((current) => ({ ...current, [field.id]: event.target.checked }))} /> Sim
                                 </label>
                               ) : field.type === "date" ? (
-                                <div className="mt-1"><DatePicker value={String(editingAnswers[field.id] || "")} onChange={(value) => setEditingAnswers((current) => ({ ...current, [field.id]: value }))} required={field.required} /></div>
+                                <div className="mt-1"><DatePicker value={String(editingAnswers[field.id] || "")} onChange={(value) => setEditingAnswers((current) => ({ ...current, [field.id]: value }))} required={field.required} inline /></div>
                               ) : field.type === "textarea" ? (
                                 <Textarea className="mt-1" value={String(editingAnswers[field.id] || "")} onChange={(event) => setEditingAnswers((current) => ({ ...current, [field.id]: event.target.value }))} />
                               ) : field.type === "select" ? (

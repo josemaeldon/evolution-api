@@ -674,7 +674,11 @@ function Chat() {
         onOpenChange={(open) => {
           if (!open && !savingContact) setContactFormMode(null);
         }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onInteractOutside={(event) => {
+            if (event.target instanceof Element && event.target.closest("[data-datepicker-calendar]")) event.preventDefault();
+          }}>
           <DialogTitle>{contactFormMode === "conversation" ? "Iniciar conversa" : contactFormMode === "edit" ? "Editar contato" : "Adicionar contato"}</DialogTitle>
           <DialogDescription>Informe o telefone com código do país e DDD.</DialogDescription>
           <div className="space-y-3">
@@ -700,7 +704,7 @@ function Chat() {
             {contactFormMode !== "conversation" && (
               <div className="space-y-1">
                 <label htmlFor="contact-birth-date" className="text-sm font-medium">Data de nascimento (opcional)</label>
-                <DatePicker id="contact-birth-date" value={toPickerDate(contactBirthDate)} disabled={savingContact} onChange={(value) => setContactBirthDate(fromPickerDate(value))} />
+                <DatePicker id="contact-birth-date" value={toPickerDate(contactBirthDate)} disabled={savingContact} onChange={(value) => setContactBirthDate(fromPickerDate(value))} inline />
               </div>
             )}
           </div>

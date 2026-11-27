@@ -195,14 +195,7 @@ function Header({ instanceId }: { instanceId?: string }) {
         </DialogContent>
       </Dialog>
       <Dialog open={birthdaySearchOpen} onOpenChange={setBirthdaySearchOpen}>
-        <DialogContent
-          className="sm:max-w-md"
-          onInteractOutside={(event) => {
-            const target = event.target;
-            if (target instanceof Element && target.closest('[role="dialog"][aria-label="Selecionar data"]')) {
-              event.preventDefault();
-            }
-          }}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Consultar aniversariantes</DialogTitle>
             <DialogDescription>Escolha uma data para verificar quais contatos fazem aniversário.</DialogDescription>
@@ -213,6 +206,7 @@ function Header({ instanceId }: { instanceId?: string }) {
               id="birthday-search-date"
               value={toPickerDate(birthdaySearchDate)}
               onChange={(value) => setBirthdaySearchDate(fromPickerDate(value) || localDateKey())}
+              inline
             />
             {birthdaySearchLoading ? (
               <p className="py-4 text-center text-sm text-muted-foreground">Buscando aniversariantes…</p>
