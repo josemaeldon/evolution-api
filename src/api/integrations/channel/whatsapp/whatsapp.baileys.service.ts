@@ -916,9 +916,50 @@ export class BaileysStartupService extends ChannelStartupService {
     },
   };
 
+  private async syncContactNames(contacts: Partial<Contact>[]) {
+    if (!this.configService.get<Database>('DATABASE').SAVE_DATA.CONTACTS) return;
+    // PUSH_NAME sync often contains LIDs only. Persist both identities before fetching any photos.
+    for (let index = 0; index < contacts.length; index += 20) {
+      await Promise.all(
+        contacts.slice(index, index + 20).map(async (contact) => {
+          if (!contact.id) return;
+          const name = [contact.name, contact.notify, contact.verifiedName].find((value) =>
+            this.isUsefulGroupSenderName(value),
+          );
+          if (!name) return;
+          const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, '');
+          const jids = new Set(
+            [contact.id, contact.lid, contact.phoneNumber]
+              .filter((jid): jid is string => Boolean(jid))
+              .map((jid) => normalizeJid(jid.includes('@') ? jid : `${jid}@s.whatsapp.net`)),
+          );
+          for (const jid of [...jids]) {
+            try {
+              const mapping = this.client.signalRepository.lidMapping;
+              const alias = jid.endsWith('@lid') ? await mapping.getPNForLID(jid) : await mapping.getLIDForPN(jid);
+              if (alias) jids.add(normalizeJid(alias));
+            } catch {
+              // A name remains available under its original identity until an alias is known.
+            }
+          }
+          await Promise.all(
+            [...jids].map((remoteJid) =>
+              this.prismaRepository.contact.upsert({
+                where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
+                create: { remoteJid, instanceId: this.instanceId, pushName: name.trim() },
+                update: { pushName: name.trim() },
+              }),
+            ),
+          );
+        }),
+      );
+    }
+  }
+
   private readonly contactHandle = {
     'contacts.upsert': async (contacts: Contact[]) => {
       try {
+        await this.syncContactNames(contacts);
         const contactsRaw: any = contacts.map((contact) => ({
           remoteJid: contact.id,
           pushName: contact?.name || contact?.notify || contact?.verifiedName || contact.id.split('@')[0],
@@ -1009,12 +1050,15 @@ export class BaileysStartupService extends ChannelStartupService {
     },
 
     'contacts.update': async (contacts: Partial<Contact>[]) => {
+      await this.syncContactNames(contacts);
       const contactsRaw: { remoteJid: string; pushName?: string; profilePicUrl?: string; instanceId: string }[] = [];
       for await (const contact of contacts) {
         this.logger.debug(`Updating contact: ${JSON.stringify(contact, null, 2)}`);
         contactsRaw.push({
           remoteJid: contact.id,
-          pushName: contact?.name ?? contact?.notify ?? contact?.verifiedName,
+          pushName: [contact?.name, contact?.notify, contact?.verifiedName].find((name) =>
+            this.isUsefulGroupSenderName(name),
+          ),
           profilePicUrl: (await this.profilePicture(contact.id)).profilePictureUrl,
           instanceId: this.instanceId,
         });
@@ -2201,12 +2245,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
             if (events['contacts.upsert']) {
               const payload = events['contacts.upsert'];
-              this.contactHandle['contacts.upsert'](payload);
+              await this.contactHandle['contacts.upsert'](payload);
             }
 
             if (events['contacts.update']) {
               const payload = events['contacts.update'];
-              this.contactHandle['contacts.update'](payload);
+              await this.contactHandle['contacts.update'](payload);
             }
 
             if (events[Events.LABELS_ASSOCIATION]) {
@@ -5035,18 +5079,44 @@ export class BaileysStartupService extends ChannelStartupService {
           participantPhoneJids.get(participant.id),
         ])
         .filter((jid): jid is string => Boolean(jid));
+      const participantLids = new Map<string, string>();
+      await Promise.all(
+        [...new Set(participantJids)].map(async (jid) => {
+          const normalized = normalizeJid(jid);
+          if (!normalized.endsWith('@s.whatsapp.net')) return;
+          try {
+            const lid = await this.client.signalRepository.lidMapping.getLIDForPN(normalized);
+            if (lid) participantLids.set(normalized, normalizeJid(lid));
+          } catch {
+            // Some participants have no LID mapping yet.
+          }
+        }),
+      );
       const contacts = await this.prismaRepository.contact.findMany({
-        where: { instanceId: this.instanceId, remoteJid: { in: [...new Set(participantJids)] } },
+        where: {
+          instanceId: this.instanceId,
+          remoteJid: { in: [...new Set([...participantJids, ...participantLids.values()])] },
+        },
       });
       const contactsByJid = new Map(contacts.map((contact) => [contact.remoteJid, contact]));
       const parsedParticipants = participants.map((participant) => {
         const phoneJid = participantPhoneJids.get(participant.id);
-        const matchingContacts = [participant.id, normalizeJid(participant.id), participant.lid, phoneJid]
+        const matchingContacts = [
+          participant.id,
+          normalizeJid(participant.id),
+          participant.lid,
+          phoneJid,
+          participantLids.get(normalizeJid(phoneJid || participant.id)),
+        ]
           .filter((jid): jid is string => Boolean(jid))
           .map((jid) => contactsByJid.get(normalizeJid(jid)))
           .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact));
         return {
           ...participant,
+          customName: matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean),
+          pushName:
+            matchingContacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean) ||
+            meaningfulName(participant.notify),
           name:
             matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean) ||
             matchingContacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean) ||
@@ -5746,10 +5816,12 @@ export class BaileysStartupService extends ChannelStartupService {
       participantJids.map(async (jid) => {
         const normalizedJid = normalizeParticipantJid(jid);
         if (normalizedJid !== jid) participantJidMappings.set(jid, normalizedJid);
-        if (!normalizedJid.endsWith('@lid')) return;
         try {
-          const phoneJid = await this.client.signalRepository.lidMapping.getPNForLID(normalizedJid);
-          if (phoneJid) participantJidMappings.set(jid, phoneJid);
+          const mapping = this.client.signalRepository.lidMapping;
+          const alias = normalizedJid.endsWith('@lid')
+            ? await mapping.getPNForLID(normalizedJid)
+            : await mapping.getLIDForPN(normalizedJid);
+          if (alias) participantJidMappings.set(jid, normalizeParticipantJid(alias));
         } catch {
           // Keep the LID as a fallback when WhatsApp has no phone mapping for it.
         }
@@ -5850,7 +5922,7 @@ export class BaileysStartupService extends ChannelStartupService {
         const senderName = customName || messageName || contactName || historyName;
         if (senderName) {
           message.pushName = senderName;
-        } else if (resolvedParticipantJid) {
+        } else if (resolvedParticipantJid?.endsWith('@s.whatsapp.net')) {
           message.pushName = resolvedParticipantJid.split('@')[0];
         } else if (!message.pushName && participantJid) {
           message.pushName = participantDisplay;

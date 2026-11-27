@@ -72,6 +72,11 @@ export type Key = {
   fromMe: boolean;
   remoteJid: string;
   participant?: string;
+  participantAlt?: string;
+  participantUsername?: string;
+  remoteJidAlt?: string;
+  remoteJidUsername?: string;
+  addressingMode?: 'lid' | 'pn';
   deleted?: boolean;
 };
 

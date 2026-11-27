@@ -60,6 +60,23 @@ const usefulSenderName = (name?: string | null) => {
   return value && !/^\+?\d[\d\s().:-]*$/.test(value) && !/@(?:lid|s\.whatsapp\.net)$/i.test(value) ? value : undefined;
 };
 
+function GroupSenderAvatar({ jid, name, src, instanceName }: { jid?: string; name: string; src?: string; instanceName?: string }) {
+  const { data: picture } = useQuery({
+    queryKey: ["groupSenderPicture", instanceName, jid],
+    queryFn: async () => (await api.post(`/chat/fetchProfilePictureUrl/${instanceName}`, { number: jid })).data?.profilePictureUrl as string | undefined,
+    enabled: Boolean(instanceName && jid && !src),
+    staleTime: 30 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  return (
+    <Avatar className="mb-5 h-8 w-8 shrink-0 self-end">
+      <AvatarImage src={src || picture} alt={`Foto de ${name}`} />
+      <AvatarFallback className="bg-muted text-xs">{usefulSenderName(name) ? name.replace(/^~\s*/, "").slice(0, 1).toUpperCase() : <User className="h-4 w-4" />}</AvatarFallback>
+    </Avatar>
+  );
+}
+
 const formatDateSeparator = (date: Date, t: TFn, locale: string): string => {
   const today = new Date();
   const yesterday = new Date(today);
@@ -712,6 +729,7 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     },
     enabled: Boolean(instance?.name && isGroupChat && remoteJid),
     staleTime: 5 * 60 * 1000,
+    refetchInterval: 30_000,
   });
   const contactsByCanonicalJid = useMemo(() => {
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
@@ -720,19 +738,23 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
   const groupParticipantIdentity = useMemo(() => {
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
     const names = new Map<string, string>();
+    const customNames = new Map<string, string>();
     const phones = new Map<string, string>();
-    groupParticipants.forEach((participant: { id?: string; lid?: string; phoneNumber?: string; name?: string }) => {
-      const name = participant.name?.trim();
+    const pictures = new Map<string, string>();
+    groupParticipants.forEach((participant: { id?: string; lid?: string; phoneNumber?: string; name?: string; customName?: string; pushName?: string; imgUrl?: string }) => {
+      const name = usefulSenderName(participant.pushName) || usefulSenderName(participant.name);
       const phone = participant.phoneNumber?.split("@")[0];
       [participant.id, participant.lid, participant.phoneNumber].filter((jid): jid is string => Boolean(jid)).forEach((jid) => {
         const normalized = normalizeJid(jid);
         for (const key of [normalized, normalized.split("@")[0]]) {
           if (name && !/^\+?\d[\d\s().:-]*$/.test(name)) names.set(key, name);
+          if (usefulSenderName(participant.customName)) customNames.set(key, participant.customName!.trim());
           if (phone) phones.set(key, phone);
+          if (participant.imgUrl && participant.imgUrl !== "changed") pictures.set(key, participant.imgUrl);
         }
       });
     });
-    return { names, phones };
+    return { names, customNames, phones, pictures };
   }, [groupParticipants]);
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -1543,38 +1565,11 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     </DropdownMenu>
   );
 
-  const renderBubbleRight = (message: Message) => (
-    <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-end">
-      <div className="flex max-w-[85%] items-start gap-1">
-        <ChatEmojiPicker
-          label="Reagir à mensagem"
-          onSelect={(emoji) => sendReaction(message, emoji)}
-          onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined}
-          disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")}
-        />
-        {messageActions(message)}
-        <div className="min-w-0">
-          {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}:</div>}
-          <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
-            <QuotedContent message={message} onJump={jumpToQuotedMessage} />
-            <DeferredMessageContent message={withoutManagerSignature(message)} instanceName={instance?.name} token={instance?.token} />
-          </div>
-          <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
-          <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">
-            {formatMessageTime(getMessageTimestamp(message), locale)}
-            {message.status === "EDITED" && " · editada"}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderBubbleLeft = (message: Message) => {
-    const isGroup = !!remoteJid?.endsWith("@g.us");
+  const getGroupSenderIdentity = (message: Message) => {
     const participant = message.key.participant;
     const senderKey = participant || message.pushName || "";
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
-    const participantCandidates = [participant, (message.key as typeof message.key & { participantAlt?: string }).participantAlt]
+    const participantCandidates = [participant, message.key.participantAlt, ...(message.key.fromMe && instance?.ownerJid ? [instance.ownerJid] : [])]
       .filter((jid): jid is string => Boolean(jid))
       .map(normalizeJid);
     const groupSenderPhone = participantCandidates
@@ -1582,24 +1577,78 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
       .find(Boolean);
     const senderContacts = [...participantCandidates, ...(groupSenderPhone ? [`${groupSenderPhone}@s.whatsapp.net`] : [])]
       .map((jid) => contactsByCanonicalJid.get(jid));
-    const customSenderName = senderContacts.map((contact) => usefulSenderName(contact?.customName)).find(Boolean);
+    const customSenderName = senderContacts.map((contact) => usefulSenderName(contact?.customName)).find(Boolean) || participantCandidates
+      .map((jid) => groupParticipantIdentity.customNames.get(jid)).find(Boolean);
     const contactSenderName = senderContacts.map((contact) => usefulSenderName(contact?.pushName)).find(Boolean);
     const groupSenderName = participantCandidates
       .map((jid) => groupParticipantIdentity.names.get(jid) || groupParticipantIdentity.names.get(jid.split("@")[0]))
       .find(Boolean);
-    const messageSenderName = usefulSenderName(message.pushName);
-    const senderName = customSenderName || messageSenderName || contactSenderName || groupSenderName || groupSenderPhone || (participant ? normalizeJid(participant).split("@")[0] : "");
+    const messageSenderName = message.key.fromMe && message.pushName === "Você" ? undefined : usefulSenderName(message.pushName);
+    const username = message.key.participantUsername?.trim();
+    const senderName = customSenderName || messageSenderName || contactSenderName || groupSenderName || (message.key.fromMe ? usefulSenderName(instance?.profileName) : undefined);
+    const senderPhone = groupSenderPhone || participantCandidates.find((jid) => jid.endsWith("@s.whatsapp.net"))?.split("@")[0];
+    const senderJid = senderPhone ? `${senderPhone}@s.whatsapp.net` : participantCandidates[0];
+    const senderPicture = (message.key.fromMe ? instance?.profilePicUrl : undefined) || senderContacts.map((contact) => contact?.profilePicUrl).find(Boolean) || participantCandidates
+      .map((jid) => groupParticipantIdentity.pictures.get(jid)).find(Boolean);
+    const displayName = senderName ? `${customSenderName ? "" : "~ "}${senderName}` : username ? `@${username.replace(/^@/, "")}` : message.key.fromMe ? "Você" : "Nome indisponível";
+
+    return { senderKey, senderName, senderPhone, senderJid, senderPicture, displayName, username };
+  };
+
+  const renderBubbleRight = (message: Message) => {
+    const { senderName, senderPhone, senderJid, senderPicture, displayName, username } = getGroupSenderIdentity(message);
+    return (
+      <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-end">
+        <div className="flex max-w-[85%] items-start gap-1">
+          <ChatEmojiPicker
+            label="Reagir à mensagem"
+            onSelect={(emoji) => sendReaction(message, emoji)}
+            onClear={reactionsByTarget.get(message.key.id)?.some((reaction) => reaction.sender === "Você") ? () => sendReaction(message, "") : undefined}
+            disabled={!!reactingId || !["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS"].includes(instance?.integration || "")}
+          />
+          {messageActions(message)}
+          <div className="min-w-0">
+            {message.managerSenderName && <div className="mb-1 px-1 text-right text-xs font-semibold text-primary">{message.managerSenderName}:</div>}
+            <div className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
+              {isGroupChat && (
+                <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 text-xs">
+                  <span className="min-w-0 break-words font-semibold">{displayName}</span>
+                  {senderPhone && <span className="whitespace-nowrap opacity-80">+{senderPhone}</span>}
+                  {username && senderName && <span className="w-full opacity-80">@{username.replace(/^@/, "")}</span>}
+                </div>
+              )}
+              <QuotedContent message={message} onJump={jumpToQuotedMessage} />
+              <DeferredMessageContent message={withoutManagerSignature(message)} instanceName={instance?.name} token={instance?.token} />
+            </div>
+            <ReactionBadges reactions={reactionsByTarget.get(message.key.id)} />
+            <span className="mt-0.5 block px-1 text-right text-[11px] text-muted-foreground">
+              {formatMessageTime(getMessageTimestamp(message), locale)}
+              {message.status === "EDITED" && " · editada"}
+            </span>
+          </div>
+          {isGroupChat && <GroupSenderAvatar jid={senderJid} name={senderName || ""} src={senderPicture} instanceName={instance?.name} />}
+        </div>
+      </div>
+    );
+  };
+
+  const renderBubbleLeft = (message: Message) => {
+    const isGroup = !!remoteJid?.endsWith("@g.us");
+    const { senderKey, senderName, senderPhone, senderJid, senderPicture, displayName, username } = getGroupSenderIdentity(message);
 
     return (
       <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-start">
         <div className="flex max-w-[85%] items-start gap-1">
+          {isGroup && <GroupSenderAvatar jid={senderJid} name={senderName || ""} src={senderPicture} instanceName={instance?.name} />}
           <div className="min-w-0">
-            {isGroup && senderName && (
-              <div className="mb-1 text-xs font-semibold" style={{ color: getSenderColor(senderKey) }}>
-                {senderName}
-              </div>
-            )}
             <div className="rounded-lg border bg-muted px-3 py-2 text-sm text-foreground">
+              {isGroup && (
+                <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 text-xs">
+                  <span className="min-w-0 break-words font-semibold" style={{ color: getSenderColor(senderKey) }}>{displayName}</span>
+                  {senderPhone && <span className="whitespace-nowrap text-muted-foreground">+{senderPhone}</span>}
+                  {username && senderName && <span className="w-full text-muted-foreground">@{username.replace(/^@/, "")}</span>}
+                </div>
+              )}
               <QuotedContent message={message} onJump={jumpToQuotedMessage} />
               <DeferredMessageContent message={message} instanceName={instance?.name} token={instance?.token} />
             </div>
