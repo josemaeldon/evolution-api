@@ -31,7 +31,7 @@ const ProtectedRoute = ({ children, feature }: ProtectedRouteProps) => {
     return <Navigate to="/manager/" />;
   }
 
-  if (companyMode && account?.role === "user" && !(/^\/manager\/?$/.test(location.pathname) || /\/(?:chat|forms|labels|bulk-messaging)(?:\/|$)/.test(location.pathname))) {
+  if (companyMode && account?.role === "user" && !(/^\/manager\/?$/.test(location.pathname) || /\/(?:chat|forms|labels|bulk-messaging|statuses)(?:\/|$)/.test(location.pathname))) {
     return <Navigate to="/manager/" />;
   }
 

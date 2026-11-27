@@ -1,5 +1,5 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@evoapi/design-system/collapsible";
-import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap, Info, Images, Tag, Send } from "lucide-react";
+import { ChevronDown, Cog, FileQuestion, IterationCcw, LayoutDashboard, MessageCircle, ClipboardList, Building2, Zap, Info, Images, Tag, Send, CircleDot } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, useLocation } from "react-router-dom";
@@ -142,6 +142,7 @@ function InstanceSidebar() {
     () => [
       { id: "dashboard", title: t("sidebar.dashboard"), icon: LayoutDashboard, path: "dashboard" },
       { id: "chat", title: t("sidebar.chat"), icon: MessageCircle, path: "chat" },
+      { id: "statuses", title: "Status", icon: CircleDot, path: "statuses" },
       { id: "labels", title: "Etiquetas", icon: Tag, path: "labels" },
       { id: "bulkMessaging", title: "Envio em Massa", icon: Send, path: "bulk-messaging" },
       { id: "files", title: "Arquivos e Mídias", icon: Images, path: "files" },
@@ -187,8 +188,11 @@ function InstanceSidebar() {
     () =>
       menus
         .filter((menu) => {
+          if ("id" in menu && menu.id === "statuses") {
+            return ["superadmin", "admin", "user"].includes(account?.role || "");
+          }
           if ("id" in menu && menu.id === "files") return account?.role === "admin" || account?.role === "superadmin";
-          return account?.role !== "user" || ("id" in menu && ["chat", "forms", "labels", "bulkMessaging"].includes(menu.id));
+          return account?.role !== "user" || ("id" in menu && ["chat", "forms", "labels", "bulkMessaging", "statuses"].includes(menu.id));
         })
         .map((menu) => {
           if ("children" in menu) {

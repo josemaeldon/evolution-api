@@ -35,6 +35,7 @@ import PublicChatForm from "@/pages/PublicChatForm";
 import FilesAndMedia from "@/pages/instance/FilesAndMedia";
 import ContactLabels from "@/pages/instance/Labels";
 import BulkMessaging from "@/pages/instance/BulkMessaging";
+import ContactStatuses from "@/pages/instance/Statuses";
 
 const router = createBrowserRouter([
   {
@@ -111,6 +112,16 @@ const router = createBrowserRouter([
       <ProtectedRoute feature="chat">
         <InstanceLayout>
           <Chat />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/statuses",
+    element: (
+      <ProtectedRoute feature="chat">
+        <InstanceLayout>
+          <ContactStatuses />
         </InstanceLayout>
       </ProtectedRoute>
     ),
