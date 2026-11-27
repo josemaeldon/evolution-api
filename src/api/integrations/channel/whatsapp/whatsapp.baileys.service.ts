@@ -1332,6 +1332,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
           const messageRaw = this.prepareMessage(received);
 
+          if (isJidGroup(received.key.remoteJid)) {
+            messageRaw.pushName = await this.resolveGroupMessageSenderName(received, messageRaw.pushName);
+          }
+
           if (messageRaw.key.remoteJid?.includes('@lid') && messageRaw.key.remoteJidAlt) {
             messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
           }
@@ -4976,14 +4980,17 @@ export class BaileysStartupService extends ChannelStartupService {
   public async findParticipants(id: GroupJid) {
     try {
       const participants = (await this.client.groupMetadata(id.groupJid)).participants;
+      const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, '');
+      const participantJids = participants.flatMap((participant) => [participant.id, normalizeJid(participant.id)]);
       const contacts = await this.prismaRepository.contact.findMany({
-        where: { instanceId: this.instanceId, remoteJid: { in: participants.map((p) => p.id) } },
+        where: { instanceId: this.instanceId, remoteJid: { in: [...new Set(participantJids)] } },
       });
+      const contactsByJid = new Map(contacts.map((contact) => [contact.remoteJid, contact]));
       const parsedParticipants = participants.map((participant) => {
-        const contact = contacts.find((c) => c.remoteJid === participant.id);
+        const contact = contactsByJid.get(participant.id) || contactsByJid.get(normalizeJid(participant.id));
         return {
           ...participant,
-          name: participant.name ?? contact?.pushName,
+          name: contact?.customName?.trim() || contact?.pushName?.trim() || participant.name,
           imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
         };
       });
@@ -4998,6 +5005,70 @@ export class BaileysStartupService extends ChannelStartupService {
       console.error(error);
       throw new NotFoundException('No participants', error.toString());
     }
+  }
+
+  private async resolveGroupMessageSenderName(
+    message: WAMessage,
+    fallbackName?: string | null,
+  ): Promise<string | null> {
+    const key = message.key as typeof message.key & { participantAlt?: string };
+    const candidates = [
+      ...new Set([key.participant, key.participantAlt, (message as any).participant].filter(Boolean)),
+    ] as string[];
+    if (!candidates.length) return fallbackName || null;
+
+    const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, '');
+    const mappedJids = new Map<string, string>();
+    for (const candidate of candidates) {
+      const normalized = normalizeJid(candidate);
+      mappedJids.set(candidate, normalized);
+      if (normalized.endsWith('@lid')) {
+        try {
+          const phoneJid = await this.client.signalRepository.lidMapping.getPNForLID(normalized);
+          if (phoneJid) mappedJids.set(candidate, normalizeJid(phoneJid));
+        } catch {
+          // Use the LID if WhatsApp has no phone number mapping.
+        }
+      }
+    }
+
+    const lookupJids = [...new Set([...mappedJids.values(), ...candidates])];
+    try {
+      const contacts = await this.prismaRepository.contact.findMany({
+        where: { instanceId: this.instanceId, remoteJid: { in: lookupJids } },
+        select: { remoteJid: true, customName: true, pushName: true },
+      });
+      const contactName = contacts
+        .map((contact) => contact.customName?.trim() || contact.pushName?.trim())
+        .find((name) => name && !/^\+?\d[\d\s().-]*$/.test(name));
+      if (contactName) return contactName;
+    } catch (error) {
+      this.logger.warn(`Unable to resolve group message sender contact: ${error}`);
+    }
+
+    const numericFallback = candidates.some((jid) => {
+      const bareJid = normalizeJid(jid).split('@')[0];
+      return fallbackName === jid || fallbackName === jid.split('@')[0] || fallbackName === bareJid;
+    });
+    if (fallbackName && !numericFallback) return fallbackName;
+
+    try {
+      const groupJid = key.remoteJid!;
+      const metadata = await this.getGroupMetadataCache(groupJid);
+      const participant = metadata?.participants?.find((item) => {
+        const participantIds = [item.id, (item as any).phoneNumber].filter(Boolean).map(normalizeJid);
+        return candidates.some((candidate) => {
+          const normalized = mappedJids.get(candidate) || normalizeJid(candidate);
+          return participantIds.includes(normalized) || participantIds.includes(normalizeJid(candidate));
+        });
+      });
+      const metadataName = participant?.name?.trim();
+      if (metadataName && !/^\+?\d[\d\s().-]*$/.test(metadataName)) return metadataName;
+    } catch (error) {
+      this.logger.warn(`Unable to resolve group message sender metadata: ${error}`);
+    }
+
+    return candidates.map((jid) => normalizeJid(jid).split('@')[0]).find(Boolean) || fallbackName || null;
   }
 
   public async updateGParticipant(update: GroupUpdateParticipantDto) {
