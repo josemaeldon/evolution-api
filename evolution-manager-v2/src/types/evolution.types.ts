@@ -7,6 +7,8 @@ export type Settings = {
   readMessages: boolean;
   readStatus: boolean;
   syncFullHistory: boolean;
+  saveContactsMedia: boolean;
+  saveGroupsMedia: boolean;
   createdAt?: string;
   updatedAt?: string;
   instanceId?: string;

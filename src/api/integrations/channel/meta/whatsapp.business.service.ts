@@ -447,147 +447,149 @@ export class BusinessStartupService extends ChannelStartupService {
             instanceId: this.instanceId,
           };
 
-          try {
-            const message: any = received;
+          if (settings?.saveContactsMedia !== false) {
+            try {
+              const message: any = received;
 
-            // Verificação adicional para garantir que há conteúdo de mídia real
-            const hasRealMedia = this.hasValidMediaContent(messageRaw);
+              // Verificação adicional para garantir que há conteúdo de mídia real
+              const hasRealMedia = this.hasValidMediaContent(messageRaw);
 
-            if (!hasRealMedia) {
-              this.logger.warn('Message detected as media but contains no valid media content');
-            } else {
-              const id = message.messages[0][message.messages[0].type].id;
-              let urlServer = this.configService.get<WaBusiness>('WA_BUSINESS').URL;
-              const version = this.configService.get<WaBusiness>('WA_BUSINESS').VERSION;
-              urlServer = `${urlServer}/${version}/${id}`;
-              const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` };
-              const result = await axios.get(urlServer, { headers });
-
-              const buffer = await axios.get(result.data.url, {
-                headers: { Authorization: `Bearer ${this.token}` }, // Use apenas o token de autorização para download
-                responseType: 'arraybuffer',
-              });
-
-              let mediaType;
-
-              if (message.messages[0].document) {
-                mediaType = 'document';
-              } else if (message.messages[0].image) {
-                mediaType = 'image';
-              } else if (message.messages[0].audio) {
-                mediaType = 'audio';
+              if (!hasRealMedia) {
+                this.logger.warn('Message detected as media but contains no valid media content');
               } else {
-                mediaType = 'video';
-              }
+                const id = message.messages[0][message.messages[0].type].id;
+                let urlServer = this.configService.get<WaBusiness>('WA_BUSINESS').URL;
+                const version = this.configService.get<WaBusiness>('WA_BUSINESS').VERSION;
+                urlServer = `${urlServer}/${version}/${id}`;
+                const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` };
+                const result = await axios.get(urlServer, { headers });
 
-              if (mediaType == 'video' && !this.configService.get<S3>('S3').SAVE_VIDEO) {
-                this.logger?.info?.('Video upload attempted but is disabled by configuration.');
-                return {
-                  success: false,
-                  message:
-                    'Video upload is currently disabled. Please contact support if you need this feature enabled.',
-                };
-              }
+                const buffer = await axios.get(result.data.url, {
+                  headers: { Authorization: `Bearer ${this.token}` }, // Use apenas o token de autorização para download
+                  responseType: 'arraybuffer',
+                });
 
-              const mimetype = result.data?.mime_type || result.headers['content-type'];
+                let mediaType;
 
-              const contentDisposition = result.headers['content-disposition'];
-              let fileName = `${message.messages[0].id}.${mimetype.split('/')[1]}`;
-              if (contentDisposition) {
-                const match = contentDisposition.match(/filename="(.+?)"/);
-                if (match) {
-                  fileName = match[1];
+                if (message.messages[0].document) {
+                  mediaType = 'document';
+                } else if (message.messages[0].image) {
+                  mediaType = 'image';
+                } else if (message.messages[0].audio) {
+                  mediaType = 'audio';
+                } else {
+                  mediaType = 'video';
                 }
-              }
 
-              // Para áudio, garantir extensão correta baseada no mimetype
-              if (mediaType === 'audio') {
-                if (mimetype.includes('ogg')) {
-                  fileName = `${message.messages[0].id}.ogg`;
-                } else if (mimetype.includes('mp3')) {
-                  fileName = `${message.messages[0].id}.mp3`;
-                } else if (mimetype.includes('m4a')) {
-                  fileName = `${message.messages[0].id}.m4a`;
+                if (mediaType == 'video' && !this.configService.get<S3>('S3').SAVE_VIDEO) {
+                  this.logger?.info?.('Video upload attempted but is disabled by configuration.');
+                  return {
+                    success: false,
+                    message:
+                      'Video upload is currently disabled. Please contact support if you need this feature enabled.',
+                  };
                 }
-              }
 
-              const sizeBytes = buffer.data.byteLength;
-              const createdMessage = await this.prismaRepository.message.create({
-                data: messageRaw,
-              });
+                const mimetype = result.data?.mime_type || result.headers['content-type'];
 
-              if (!(await hasCompanyStorageCapacity(this.prismaRepository, this.instanceId, sizeBytes))) {
-                this.logger.warn(`Company storage quota reached; skipping media ${createdMessage.id}`);
-              } else {
-                const fullName = join(`${this.instance.id}`, key.remoteJid, mediaType, fileName);
-                const storageTarget = await getCompanyStorageTarget(this.prismaRepository, this.instanceId);
+                const contentDisposition = result.headers['content-disposition'];
+                let fileName = `${message.messages[0].id}.${mimetype.split('/')[1]}`;
+                if (contentDisposition) {
+                  const match = contentDisposition.match(/filename="(.+?)"/);
+                  if (match) {
+                    fileName = match[1];
+                  }
+                }
 
-                const uploadResult = await s3Service.uploadFile(
-                  fullName,
-                  buffer.data,
-                  sizeBytes,
-                  {
-                    'Content-Type': mimetype,
-                  },
-                  storageTarget,
-                );
-                if (uploadResult instanceof Error) throw uploadResult;
+                // Para áudio, garantir extensão correta baseada no mimetype
+                if (mediaType === 'audio') {
+                  if (mimetype.includes('ogg')) {
+                    fileName = `${message.messages[0].id}.ogg`;
+                  } else if (mimetype.includes('mp3')) {
+                    fileName = `${message.messages[0].id}.mp3`;
+                  } else if (mimetype.includes('m4a')) {
+                    fileName = `${message.messages[0].id}.m4a`;
+                  }
+                }
 
-                await this.prismaRepository.media.create({
-                  data: {
-                    messageId: createdMessage.id,
-                    instanceId: this.instanceId,
-                    type: mediaType,
-                    fileName: fullName,
-                    mimetype,
+                const sizeBytes = buffer.data.byteLength;
+                const createdMessage = await this.prismaRepository.message.create({
+                  data: messageRaw,
+                });
+
+                if (!(await hasCompanyStorageCapacity(this.prismaRepository, this.instanceId, sizeBytes))) {
+                  this.logger.warn(`Company storage quota reached; skipping media ${createdMessage.id}`);
+                } else {
+                  const fullName = join(`${this.instance.id}`, key.remoteJid, mediaType, fileName);
+                  const storageTarget = await getCompanyStorageTarget(this.prismaRepository, this.instanceId);
+
+                  const uploadResult = await s3Service.uploadFile(
+                    fullName,
+                    buffer.data,
                     sizeBytes,
-                    storageBackend: storageTarget.backend,
-                    storageBucket: storageTarget.bucket,
-                  },
-                });
+                    {
+                      'Content-Type': mimetype,
+                    },
+                    storageTarget,
+                  );
+                  if (uploadResult instanceof Error) throw uploadResult;
 
-                const mediaUrl = await s3Service.getObjectUrl(fullName, undefined, storageTarget);
+                  await this.prismaRepository.media.create({
+                    data: {
+                      messageId: createdMessage.id,
+                      instanceId: this.instanceId,
+                      type: mediaType,
+                      fileName: fullName,
+                      mimetype,
+                      sizeBytes,
+                      storageBackend: storageTarget.backend,
+                      storageBucket: storageTarget.bucket,
+                    },
+                  });
 
-                messageRaw.message.mediaUrl = mediaUrl;
-                if (this.localWebhook.enabled && this.localWebhook.webhookBase64) {
-                  messageRaw.message.base64 = buffer.data.toString('base64');
+                  const mediaUrl = await s3Service.getObjectUrl(fullName, undefined, storageTarget);
+
+                  messageRaw.message.mediaUrl = mediaUrl;
+                  if (this.localWebhook.enabled && this.localWebhook.webhookBase64) {
+                    messageRaw.message.base64 = buffer.data.toString('base64');
+                  }
                 }
-              }
 
-              // Processar OpenAI speech-to-text para áudio após o mediaUrl estar disponível
-              if (this.configService.get<Openai>('OPENAI').ENABLED && mediaType === 'audio') {
-                const openAiDefaultSettings = await this.prismaRepository.openaiSetting.findFirst({
-                  where: {
-                    instanceId: this.instanceId,
-                  },
-                  include: {
-                    OpenaiCreds: true,
-                  },
-                });
+                // Processar OpenAI speech-to-text para áudio após o mediaUrl estar disponível
+                if (this.configService.get<Openai>('OPENAI').ENABLED && mediaType === 'audio') {
+                  const openAiDefaultSettings = await this.prismaRepository.openaiSetting.findFirst({
+                    where: {
+                      instanceId: this.instanceId,
+                    },
+                    include: {
+                      OpenaiCreds: true,
+                    },
+                  });
 
-                if (
-                  openAiDefaultSettings &&
-                  openAiDefaultSettings.openaiCredsId &&
-                  openAiDefaultSettings.speechToText
-                ) {
-                  try {
-                    messageRaw.message.speechToText = `[audio] ${await this.openaiService.speechToText(
-                      openAiDefaultSettings.OpenaiCreds,
-                      {
-                        message: {
-                          mediaUrl: messageRaw.message.mediaUrl,
-                          ...messageRaw,
+                  if (
+                    openAiDefaultSettings &&
+                    openAiDefaultSettings.openaiCredsId &&
+                    openAiDefaultSettings.speechToText
+                  ) {
+                    try {
+                      messageRaw.message.speechToText = `[audio] ${await this.openaiService.speechToText(
+                        openAiDefaultSettings.OpenaiCreds,
+                        {
+                          message: {
+                            mediaUrl: messageRaw.message.mediaUrl,
+                            ...messageRaw,
+                          },
                         },
-                      },
-                    )}`;
-                  } catch (speechError) {
-                    this.logger.error(`Error processing speech-to-text: ${speechError}`);
+                      )}`;
+                    } catch (speechError) {
+                      this.logger.error(`Error processing speech-to-text: ${speechError}`);
+                    }
                   }
                 }
               }
+            } catch (error) {
+              this.logger.error(['Error on upload file', error?.message, error?.stack]);
             }
-          } catch (error) {
-            this.logger.error(['Error on upload file', error?.message, error?.stack]);
           }
         } else if (received?.messages[0].interactive) {
           messageRaw = {
@@ -685,7 +687,10 @@ export class BusinessStartupService extends ChannelStartupService {
           }
         }
 
-        if (!this.isMediaMessage(message) && message.type !== 'sticker') {
+        if (
+          (!this.isMediaMessage(message) && message.type !== 'sticker') ||
+          (this.isMediaMessage(message) && settings?.saveContactsMedia === false)
+        ) {
           await this.prismaRepository.message.create({
             data: messageRaw,
           });

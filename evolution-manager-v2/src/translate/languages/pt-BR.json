@@ -312,6 +312,14 @@
       "readStatus": {
         "label": "Visualizar Status",
         "description": "Marcar todos os status como visualizados"
+      },
+      "saveContactsMedia": {
+        "label": "Salvar arquivos e mídias de contatos",
+        "description": "Baixar e armazenar mídias de conversas individuais, no armazenamento local ou no MinIO configurado."
+      },
+      "saveGroupsMedia": {
+        "label": "Salvar arquivos e mídias de grupos",
+        "description": "Baixar e armazenar mídias de conversas em grupo, no armazenamento local ou no MinIO configurado."
       }
     },
     "button": {

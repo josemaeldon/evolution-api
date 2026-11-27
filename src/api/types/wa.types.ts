@@ -89,6 +89,8 @@ export declare namespace wa {
     readMessages?: boolean;
     readStatus?: boolean;
     syncFullHistory?: boolean;
+    saveContactsMedia?: boolean;
+    saveGroupsMedia?: boolean;
     wavoipToken?: string;
   };
 

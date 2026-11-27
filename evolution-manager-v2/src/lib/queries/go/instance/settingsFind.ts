@@ -28,6 +28,8 @@ export const toSettings = (go: GoAdvancedSettings): Settings => ({
   readMessages: go.readMessages,
   readStatus: !go.ignoreStatus,
   syncFullHistory: false,
+  saveContactsMedia: true,
+  saveGroupsMedia: false,
 });
 
 export const toGoAdvancedSettings = (s: Settings): GoAdvancedSettings => ({

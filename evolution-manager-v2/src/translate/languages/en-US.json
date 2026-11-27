@@ -354,6 +354,14 @@
       "readStatus": {
         "label": "Read Status",
         "description": "Mark all statuses as read"
+      },
+      "saveContactsMedia": {
+        "label": "Save contact files and media",
+        "description": "Download and store media from individual conversations, using local storage or the configured MinIO."
+      },
+      "saveGroupsMedia": {
+        "label": "Save group files and media",
+        "description": "Download and store media from group conversations, using local storage or the configured MinIO."
       }
     },
     "button": {

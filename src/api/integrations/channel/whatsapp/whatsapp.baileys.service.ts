@@ -1541,7 +1541,7 @@ export class BaileysStartupService extends ChannelStartupService {
               this.logger.info(`Update readed messages duplicated ignored [avoid deadlock]: ${messageKey}`);
             }
 
-            if (isMedia && !isJidGroup(messageRaw.key.remoteJid)) {
+            if (isMedia && this.shouldSaveMedia(messageRaw.key.remoteJid)) {
               try {
                 if (isVideo && !this.configService.get<S3>('S3').SAVE_VIDEO) {
                   this.logger.warn('Video upload is disabled. Skipping video upload.');
@@ -2708,7 +2708,7 @@ export class BaileysStartupService extends ChannelStartupService {
         });
         const msg = existingMessage || (await this.prismaRepository.message.create({ data: messageRaw }));
 
-        if (!existingMessage && isMedia && !isJidGroup(messageRaw.key.remoteJid)) {
+        if (!existingMessage && isMedia && this.shouldSaveMedia(messageRaw.key.remoteJid)) {
           try {
             if (isVideo && !this.configService.get<S3>('S3').SAVE_VIDEO) {
               throw new Error('Video upload is disabled.');

@@ -15,6 +15,7 @@ import { useInstance } from "@/contexts/InstanceContext";
 
 import { useManageInstance } from "@/lib/queries/instance/manageInstance";
 import { useFetchSettings } from "@/lib/queries/instance/settingsFind";
+import { getProvider } from "@/lib/queries/token";
 
 import { Settings as SettingsType } from "@/types/evolution.types";
 
@@ -26,6 +27,8 @@ const FormSchema = z.object({
   readMessages: z.boolean(),
   syncFullHistory: z.boolean(),
   readStatus: z.boolean(),
+  saveContactsMedia: z.boolean(),
+  saveGroupsMedia: z.boolean(),
 });
 
 function Settings() {
@@ -49,6 +52,8 @@ function Settings() {
       readMessages: false,
       syncFullHistory: false,
       readStatus: false,
+      saveContactsMedia: true,
+      saveGroupsMedia: false,
     },
   });
 
@@ -62,6 +67,8 @@ function Settings() {
         readMessages: settings.readMessages,
         syncFullHistory: settings.syncFullHistory,
         readStatus: settings.readStatus,
+        saveContactsMedia: settings.saveContactsMedia ?? true,
+        saveGroupsMedia: settings.saveGroupsMedia ?? false,
       });
     }
   }, [form, settings]);
@@ -81,6 +88,8 @@ function Settings() {
         readMessages: data.readMessages,
         syncFullHistory: data.syncFullHistory,
         readStatus: data.readStatus,
+        saveContactsMedia: data.saveContactsMedia,
+        saveGroupsMedia: data.saveGroupsMedia,
       };
       await updateSettings({
         instanceName: instance.name,
@@ -122,9 +131,20 @@ function Settings() {
       label: t("settings.form.readStatus.label"),
       description: t("settings.form.readStatus.description"),
     },
+    {
+      name: "saveContactsMedia",
+      label: t("settings.form.saveContactsMedia.label"),
+      description: t("settings.form.saveContactsMedia.description"),
+    },
+    {
+      name: "saveGroupsMedia",
+      label: t("settings.form.saveGroupsMedia.label"),
+      description: t("settings.form.saveGroupsMedia.description"),
+    },
   ];
 
   const isRejectCall = form.watch("rejectCall");
+  const supportsMediaStorageSettings = getProvider() !== "go";
 
   if (loading) {
     return <LoadingSpinner />;
@@ -148,11 +168,13 @@ function Settings() {
                   </div>
                 )}
               </div>
-              {fields.map((field) => (
+              {fields
+                .filter((field) => supportsMediaStorageSettings || !["saveContactsMedia", "saveGroupsMedia"].includes(field.name))
+                .map((field) => (
                 <div className="flex p-4" key={field.name}>
                   <FormSwitch name={field.name} label={field.label} className="w-full justify-between" helper={field.description} />
                 </div>
-              ))}
+                ))}
               <div className="flex justify-end pt-6">
                 <Button type="submit" disabled={updating}>
                   {updating ? t("settings.button.saving") : t("settings.button.save")}

@@ -153,10 +153,21 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
+    this.localSettings.saveContactsMedia = data?.saveContactsMedia ?? true;
+    this.localSettings.saveGroupsMedia = data?.saveGroupsMedia ?? false;
     this.localSettings.wavoipToken = data?.wavoipToken;
   }
 
+  public shouldSaveMedia(remoteJid: string): boolean {
+    return remoteJid.endsWith('@g.us')
+      ? this.localSettings.saveGroupsMedia === true
+      : this.localSettings.saveContactsMedia !== false;
+  }
+
   public async setSettings(data: SettingsDto) {
+    const saveContactsMedia = data.saveContactsMedia ?? this.localSettings.saveContactsMedia ?? true;
+    const saveGroupsMedia = data.saveGroupsMedia ?? this.localSettings.saveGroupsMedia ?? false;
+
     await this.prismaRepository.setting.upsert({
       where: {
         instanceId: this.instanceId,
@@ -169,6 +180,8 @@ export class ChannelStartupService {
         readMessages: data.readMessages,
         readStatus: data.readStatus,
         syncFullHistory: data.syncFullHistory,
+        saveContactsMedia,
+        saveGroupsMedia,
         wavoipToken: data.wavoipToken,
       },
       create: {
@@ -179,6 +192,8 @@ export class ChannelStartupService {
         readMessages: data.readMessages,
         readStatus: data.readStatus,
         syncFullHistory: data.syncFullHistory,
+        saveContactsMedia,
+        saveGroupsMedia,
         wavoipToken: data.wavoipToken,
         instanceId: this.instanceId,
       },
@@ -191,6 +206,8 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
+    this.localSettings.saveContactsMedia = saveContactsMedia;
+    this.localSettings.saveGroupsMedia = saveGroupsMedia;
     this.localSettings.wavoipToken = data?.wavoipToken;
 
     if (this.localSettings.wavoipToken && this.localSettings.wavoipToken.length > 0) {
@@ -218,6 +235,8 @@ export class ChannelStartupService {
       readMessages: data.readMessages,
       readStatus: data.readStatus,
       syncFullHistory: data.syncFullHistory,
+      saveContactsMedia: data.saveContactsMedia ?? true,
+      saveGroupsMedia: data.saveGroupsMedia ?? false,
       wavoipToken: data.wavoipToken,
     };
   }

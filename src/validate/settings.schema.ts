@@ -31,6 +31,8 @@ export const settingsSchema: JSONSchema7 = {
     readMessages: { type: 'boolean' },
     readStatus: { type: 'boolean' },
     syncFullHistory: { type: 'boolean' },
+    saveContactsMedia: { type: 'boolean' },
+    saveGroupsMedia: { type: 'boolean' },
     wavoipToken: { type: 'string' },
   },
   required: ['rejectCall', 'groupsIgnore', 'alwaysOnline', 'readMessages', 'readStatus', 'syncFullHistory'],

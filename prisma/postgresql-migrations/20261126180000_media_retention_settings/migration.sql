@@ -1,0 +1,3 @@
+ALTER TABLE "Setting"
+ADD COLUMN "saveContactsMedia" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN "saveGroupsMedia" BOOLEAN NOT NULL DEFAULT false;

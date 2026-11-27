@@ -48,6 +48,8 @@ export const toInstance = (go: GoInstance): Instance => ({
     readMessages: go.readMessages,
     readStatus: !go.ignoreStatus,
     syncFullHistory: false,
+    saveContactsMedia: true,
+    saveGroupsMedia: false,
   },
   _count: { Contact: 0, Chat: 0, Message: 0 },
 });
