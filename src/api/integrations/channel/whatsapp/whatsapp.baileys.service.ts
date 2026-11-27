@@ -5539,9 +5539,22 @@ export class BaileysStartupService extends ChannelStartupService {
         }),
       ),
     );
-    const participantContacts = participantJids.length
+    const participantJidMappings = new Map<string, string>();
+    await Promise.all(
+      participantJids.map(async (jid) => {
+        if (!jid.endsWith('@lid')) return;
+        try {
+          const phoneJid = await this.client.signalRepository.lidMapping.getPNForLID(jid);
+          if (phoneJid) participantJidMappings.set(jid, phoneJid);
+        } catch {
+          // Keep the LID as a fallback when WhatsApp has no phone mapping for it.
+        }
+      }),
+    );
+    const contactJids = [...new Set([...participantJids, ...participantJidMappings.values()])];
+    const participantContacts = contactJids.length
       ? await this.prismaRepository.contact.findMany({
-          where: { instanceId: this.instanceId, remoteJid: { in: participantJids } },
+          where: { instanceId: this.instanceId, remoteJid: { in: contactJids } },
           select: { remoteJid: true, pushName: true, customName: true },
         })
       : [];
@@ -5562,12 +5575,18 @@ export class BaileysStartupService extends ChannelStartupService {
         const participantCandidates = [messageKey.participant, messageKey.participantAlt].filter((jid): jid is string =>
           Boolean(jid),
         );
-        const contact = participantCandidates.map((jid) => contactsByJid.get(jid)).find(Boolean);
+        const resolvedCandidates = participantCandidates.map((jid) => participantJidMappings.get(jid) || jid);
+        const contact = [...participantCandidates, ...resolvedCandidates]
+          .map((jid) => contactsByJid.get(jid))
+          .find(Boolean);
         const contactName = contact?.customName?.trim() || contact?.pushName?.trim();
         const participantJid = participantCandidates[0];
+        const resolvedParticipantJid = participantJid ? participantJidMappings.get(participantJid) : undefined;
 
         if (contactName) {
           message.pushName = contactName;
+        } else if (resolvedParticipantJid) {
+          message.pushName = resolvedParticipantJid.split('@')[0];
         } else if (!message.pushName && participantJid) {
           message.pushName = participantJid.split('@')[0];
         }
