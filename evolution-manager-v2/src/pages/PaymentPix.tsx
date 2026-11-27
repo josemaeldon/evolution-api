@@ -1,4 +1,5 @@
 import axios from "axios";
+import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { useParams } from "react-router-dom";
@@ -148,15 +149,22 @@ export default function PaymentPix() {
                     <div className="mx-auto mt-4 w-full max-w-[264px] rounded-2xl border bg-white p-4 shadow-sm">
                       <QRCode value={charge.code} size={232} style={{ height: "auto", maxWidth: "100%", width: "100%" }} />
                     </div>
+                    <div className="mx-auto mt-5 flex w-full flex-col items-center text-center">
+                      <button
+                        type="button"
+                        onClick={copyPixCode}
+                        className="inline-flex min-h-14 w-full max-w-sm items-center justify-center gap-3 rounded-xl bg-primary px-6 py-4 text-base font-bold text-primary-foreground shadow-lg transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                        {copied ? <Check className="h-5 w-5" aria-hidden="true" /> : <Copy className="h-5 w-5" aria-hidden="true" />}
+                        {copied ? "Código Pix copiado!" : "Copiar código Pix"}
+                      </button>
+                      <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                        Toque em <span className="font-semibold text-foreground">Copiar código Pix</span>, abra o aplicativo do seu banco e cole o código na opção Pix copia e cola.
+                      </p>
+                    </div>
                   </section>
 
                   <section aria-label="Código Pix copia e cola" className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium">Pix copia e cola</p>
-                      <button type="button" onClick={copyPixCode} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-                        {copied ? "Copiado!" : "Copiar código"}
-                      </button>
-                    </div>
+                    <p className="text-sm font-medium">Código Pix copia e cola</p>
                     <textarea
                       readOnly
                       aria-label="Código Pix para copiar e colar no aplicativo do banco"
