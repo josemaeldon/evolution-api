@@ -1110,6 +1110,7 @@ export class BaileysStartupService extends ChannelStartupService {
         }
 
         const messagesRaw: any[] = [];
+        const groupSendersWithPushName = new Map<string, WAMessage>();
 
         const messagesRepository: Set<string> = new Set(
           chatwootImport.getRepositoryMessagesCache(instance) ??
@@ -1144,6 +1145,11 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
+          const participantJid = m.key.participant || m.key.participantAlt || m.participant;
+          if (isJidGroup(m.key.remoteJid) && participantJid && this.isUsefulGroupSenderName(m.pushName)) {
+            groupSendersWithPushName.set(participantJid, m);
+          }
+
           if (messagesRepository?.has(m.key.id)) {
             continue;
           }
@@ -1167,6 +1173,13 @@ export class BaileysStartupService extends ChannelStartupService {
 
         if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
           await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
+        }
+
+        const groupSenders = [...groupSendersWithPushName.values()];
+        for (let index = 0; index < groupSenders.length; index += 20) {
+          await Promise.all(
+            groupSenders.slice(index, index + 20).map((message) => this.saveGroupSenderPushName(message)),
+          );
         }
 
         if (
@@ -1336,6 +1349,7 @@ export class BaileysStartupService extends ChannelStartupService {
           const messageRaw = this.prepareMessage(received);
 
           if (isJidGroup(received.key.remoteJid)) {
+            await this.saveGroupSenderPushName(received);
             messageRaw.pushName = await this.resolveGroupMessageSenderName(received, messageRaw.pushName);
           }
 
@@ -5056,6 +5070,52 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  private isUsefulGroupSenderName(name?: string | null): name is string {
+    const value = name?.trim();
+    return Boolean(value && !/^\+?\d[\d\s().:-]*$/.test(value) && !/@(?:lid|s\.whatsapp\.net)$/i.test(value));
+  }
+
+  private async saveGroupSenderPushName(message: WAMessage): Promise<void> {
+    if (
+      !this.configService.get<Database>('DATABASE').SAVE_DATA.CONTACTS ||
+      !isJidGroup(message.key.remoteJid) ||
+      message.key.fromMe ||
+      !this.isUsefulGroupSenderName(message.pushName)
+    ) {
+      return;
+    }
+
+    const key = message.key as typeof message.key & { participantAlt?: string };
+    const jids = new Set(
+      [key.participant, key.participantAlt, message.participant]
+        .filter((jid): jid is string => Boolean(jid))
+        .map((jid) => jid.replace(/:\d+(?=@)/, '')),
+    );
+    for (const jid of [...jids]) {
+      if (!jid.endsWith('@lid')) continue;
+      try {
+        const phoneJid = await this.client.signalRepository.lidMapping.getPNForLID(jid);
+        if (phoneJid) jids.add(phoneJid.replace(/:\d+(?=@)/, ''));
+      } catch {
+        // The LID remains usable when WhatsApp has no phone mapping.
+      }
+    }
+
+    try {
+      await Promise.all(
+        [...jids].map((remoteJid) =>
+          this.prismaRepository.contact.upsert({
+            where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
+            create: { remoteJid, instanceId: this.instanceId, pushName: message.pushName.trim() },
+            update: { pushName: message.pushName.trim() },
+          }),
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(`Unable to save group sender pushName: ${error}`);
+    }
+  }
+
   private async resolveGroupMessageSenderName(
     message: WAMessage,
     fallbackName?: string | null,
@@ -5705,6 +5765,14 @@ export class BaileysStartupService extends ChannelStartupService {
         })
       : [];
     const contactsByJid = new Map(participantContacts.map((contact) => [contact.remoteJid, contact]));
+    const senderNamesFromHistory = new Map<string, string>();
+    for (const message of messages) {
+      if (!this.isUsefulGroupSenderName(message.pushName)) continue;
+      const key = message.key as { participant?: string; participantAlt?: string };
+      for (const jid of [key.participant, key.participantAlt]) {
+        if (jid) senderNamesFromHistory.set(normalizeParticipantJid(jid), message.pushName.trim());
+      }
+    }
 
     const formattedMessages = messages.map((message) => {
       const messageKey = message.key as {
@@ -5731,7 +5799,10 @@ export class BaileysStartupService extends ChannelStartupService {
           const value = name?.trim();
           return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
         };
-        const contactName = meaningfulName(contact?.customName) || meaningfulName(contact?.pushName);
+        const historyName = participantCandidates
+          .map((jid) => senderNamesFromHistory.get(normalizeParticipantJid(jid)))
+          .find(Boolean);
+        const contactName = meaningfulName(contact?.customName) || meaningfulName(contact?.pushName) || historyName;
         const messageName = meaningfulName(message.pushName);
         const participantJid = participantCandidates[0];
         const resolvedParticipantJid = participantJid ? participantJidMappings.get(participantJid) : undefined;
