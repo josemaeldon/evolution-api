@@ -86,6 +86,20 @@ function Chat() {
   const localDate = getLocalDate();
 
   const { data: chats } = useFindChats({ instanceName: instance?.name, refetchInterval: 5000 });
+  const { data: participatingGroups, isSuccess: participatingGroupsLoaded } = useQuery<Array<{ id: string }>>({
+    queryKey: ["chats", "participatingGroups", instance?.name],
+    queryFn: async () =>
+      (await api.get(`/group/fetchAllGroups/${instance!.name}`, {
+        params: { getParticipants: "false" },
+        headers: { apikey: instance!.token },
+      })).data,
+    enabled: !!instance?.name,
+    refetchInterval: 30000,
+  });
+  const participatingGroupIds = useMemo(
+    () => new Set((participatingGroups || []).map((group) => group.id)),
+    [participatingGroups],
+  );
   serverUnreadRef.current = Object.fromEntries((chats || []).map((chat) => [chat.remoteJid, chat.unreadCount || 0]));
   const {
     data: contacts = [],
@@ -335,6 +349,7 @@ function Chat() {
         data: { groupJid: remoteJid },
         headers: { apikey: instance.token },
       });
+      queryClient.invalidateQueries({ queryKey: ["chats", "participatingGroups", instance.name] });
       setRealtimeChats((current) => current.filter((chat) => chat.remoteJid !== remoteJid));
       refreshChats();
       handleBack();
@@ -352,6 +367,7 @@ function Chat() {
         data: { groupJid: remoteJid },
         headers: { apikey: instance.token },
       });
+      queryClient.invalidateQueries({ queryKey: ["chats", "participatingGroups", instance.name] });
       setRealtimeChats((current) => current.filter((chat) => chat.remoteJid !== remoteJid));
       refreshChats();
       handleBack();
@@ -405,12 +421,13 @@ function Chat() {
       (c) =>
         c.remoteJid !== "0@s.whatsapp.net" &&
         (isContacts ? c.remoteJid.includes("@s.whatsapp.net") : c.remoteJid.includes("@g.us")) &&
+        (isContacts || !participatingGroupsLoaded || participatingGroupIds.has(c.remoteJid)) &&
         (!labelFilter || contactLabelsByJid.get(c.remoteJid)?.some((label) => label.id === labelFilter)),
     );
     if (!search.trim()) return filtered;
     const q = search.toLowerCase();
     return filtered.filter((c) => (c.pushName && c.pushName.toLowerCase().includes(q)) || c.remoteJid.toLowerCase().includes(q));
-  }, [allChats, kind, search, contactLabelsByJid, labelFilter]);
+  }, [allChats, kind, search, contactLabelsByJid, labelFilter, participatingGroupsLoaded, participatingGroupIds]);
 
   const showSidebar = !remoteJid || isMD;
   const showChat = !!remoteJid;
