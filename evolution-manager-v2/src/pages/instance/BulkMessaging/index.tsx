@@ -284,7 +284,7 @@ export default function BulkMessaging() {
         </div>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={confirmedConsent} onChange={(event) => setConfirmedConsent(event.target.checked)} className="mt-1" />
-          <span>Confirmo que os contatos selecionados autorizaram receber esta mensagem. Contatos sem autorização são excluídos automaticamente.</span>
+          <span>Confirmo que os contatos selecionados autorizaram receber esta mensagem.</span>
         </label>
         <Button
           onClick={createCampaign}

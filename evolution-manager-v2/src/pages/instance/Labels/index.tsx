@@ -10,7 +10,7 @@ import { saasApi } from "@/lib/queries/saas";
 import { useInstance } from "@/contexts/InstanceContext";
 
 type Label = { id: string; name: string; color: string };
-type Contact = { id: string; remoteJid: string; pushName?: string; customName?: string; marketingOptIn: boolean; birthDate?: string | null; labels: Label[] };
+type Contact = { id: string; remoteJid: string; pushName?: string; customName?: string; birthDate?: string | null; labels: Label[] };
 type Organization = { labels: Label[]; contacts: Contact[] };
 
 const BIRTHDAY_LABEL_ID = "__birthdays_today__";
@@ -34,7 +34,6 @@ export default function ContactLabels() {
   const [selectedLabelId, setSelectedLabelId] = useState("");
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [assigning, setAssigning] = useState(false);
-  const [updatingConsent, setUpdatingConsent] = useState(false);
   const localDate = getLocalDate();
   const queryKey = ["contactOrganization", instance?.id];
   const { data, isLoading } = useQuery<Organization>({
@@ -72,35 +71,17 @@ export default function ContactLabels() {
       toast.error("Não foi possível excluir a etiqueta");
     }
   };
-  const updateContact = async (contact: Contact, patch: { labelIds?: string[]; marketingOptIn?: boolean; birthDate?: string | null }) => {
+  const updateContact = async (contact: Contact, patch: { labelIds?: string[]; birthDate?: string | null }) => {
     if (!instance) return;
     const currentLabels = patch.labelIds || contact.labels.map((label) => label.id);
-    const marketingOptIn = patch.marketingOptIn ?? contact.marketingOptIn;
     try {
       await saasApi.put(`/saas/instance/${instance.id}/contacts/${contact.id}/organization`, {
         ...(patch.labelIds !== undefined ? { labelIds: currentLabels } : {}),
-        ...(patch.marketingOptIn !== undefined ? { marketingOptIn } : {}),
         ...(patch.birthDate !== undefined ? { birthDate: patch.birthDate } : {}),
       });
       await refresh();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || "Não foi possível atualizar o contato");
-    }
-  };
-  const updateAllConsent = async (marketingOptIn: boolean) => {
-    if (!instance || !pageContacts.length) return;
-    setUpdatingConsent(true);
-    try {
-      await saasApi.put(`/saas/instance/${instance.id}/contacts/marketing-opt-in`, {
-        contactIds: pageContacts.map((contact) => contact.id),
-        marketingOptIn,
-      });
-      await refresh();
-      toast.success(marketingOptIn ? "Todos os contatos desta página foram autorizados" : "Autorização removida dos contatos desta página");
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || "Não foi possível atualizar as autorizações");
-    } finally {
-      setUpdatingConsent(false);
     }
   };
   const assignSelectedContacts = async () => {
@@ -122,7 +103,7 @@ export default function ContactLabels() {
     <section className="mx-auto max-w-6xl space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Etiquetas</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Organize contatos por assunto e registre quais autorizaram receber campanhas.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Organize seus contatos por assunto e encontre-os facilmente pelas etiquetas.</p>
       </header>
 
       <div className="rounded-lg border bg-card p-4">
@@ -157,7 +138,6 @@ export default function ContactLabels() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold">Contatos</h2>
-            <p className="text-xs text-muted-foreground">A autorização precisa ser confirmada antes de incluir o contato em uma campanha.</p>
           </div>
           <Input aria-label="Buscar contatos" placeholder="Buscar por nome ou número" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} className="max-w-sm" />
         </div>
@@ -180,7 +160,7 @@ export default function ContactLabels() {
           <p className="py-8 text-center text-sm text-muted-foreground">Carregando contatos…</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left text-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr className="border-b text-xs text-muted-foreground">
                   <th className="p-2">
@@ -196,19 +176,6 @@ export default function ContactLabels() {
                   <th className="p-2">Contato</th>
                   <th className="p-2">Data de nascimento</th>
                   <th className="p-2">Etiquetas</th>
-                  <th className="p-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        aria-label="Marcar todos os contatos desta página para campanhas"
-                        title="Marcar ou desmarcar os contatos desta página"
-                        checked={pageContacts.length > 0 && pageContacts.every((contact) => contact.marketingOptIn)}
-                        disabled={!pageContacts.length || updatingConsent}
-                        onChange={(event) => updateAllConsent(event.target.checked)}
-                      />
-                      <span>Autorização para campanhas</span>
-                    </div>
-                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -261,12 +228,6 @@ export default function ContactLabels() {
                         ))}
                       </div>
                       {!labels.length && <span className="text-xs text-muted-foreground">Crie uma etiqueta acima</span>}
-                    </td>
-                    <td className="p-2">
-                      <label className="inline-flex items-center gap-2">
-                        <input type="checkbox" checked={contact.marketingOptIn} disabled={updatingConsent} onChange={(event) => updateContact(contact, { marketingOptIn: event.target.checked })} />
-                        Autorizou receber mensagens
-                      </label>
                     </td>
                   </tr>
                 ))}
