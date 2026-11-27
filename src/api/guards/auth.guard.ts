@@ -55,7 +55,6 @@ async function apikey(req: Request, _: Response, next: NextFunction) {
       if (
         (area === 'chat' && !USER_CHAT_ACTIONS.has(action)) ||
         (area === 'group' && (action !== 'participants' || req.method !== 'GET')) ||
-        (area === 'message' && action === 'sendStatus') ||
         (area === 'pix' && action !== 'create' && action !== 'create-sicoob') ||
         !['chat', 'message', 'pix', 'forms', 'group'].includes(area)
       ) {

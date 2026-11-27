@@ -115,7 +115,6 @@ import makeWASocket, {
   getContentType,
   getDevice,
   GroupMetadata,
-  isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
   isLidUser,
@@ -773,10 +772,9 @@ export class BaileysStartupService extends ChannelStartupService {
         }
 
         const isGroupJid = this.localSettings.groupsIgnore && isJidGroup(jid);
-        const isBroadcast = !this.localSettings.readStatus && isJidBroadcast(jid);
         const isNewsletter = isJidNewsletter(jid);
 
-        return isGroupJid || isBroadcast || isNewsletter;
+        return isGroupJid || isNewsletter;
       },
       syncFullHistory: this.localSettings.syncFullHistory,
       shouldSyncHistoryMessage: (msg: proto.Message.IHistorySyncNotification) => {
@@ -1575,7 +1573,8 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
+          const isStatusBroadcast = messageRaw.key.remoteJid === 'status@broadcast';
+          if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE || isStatusBroadcast) {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { pollUpdates, ...messageData } = messageRaw;
             const msg = await this.prismaRepository.message.create({ data: messageData });
@@ -1587,7 +1586,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
             const cachedTimestamp = await this.baileysCache.get(messageKey);
 
-            if (!cachedTimestamp) {
+            if (!cachedTimestamp && !isStatusBroadcast) {
               if (!received.key.fromMe) {
                 if (msg.status === status[3]) {
                   this.logger.log(`Update not read messages ${remoteJid}`);
@@ -3090,7 +3089,10 @@ export class BaileysStartupService extends ChannelStartupService {
   public async statusMessage(data: SendStatusDto, file?: any) {
     const mediaData: SendStatusDto = { ...data };
 
-    if (file) mediaData.content = file.buffer.toString('base64');
+    if (file) {
+      const mimeType = file.mimetype || 'application/octet-stream';
+      mediaData.content = `data:${mimeType};base64,${file.buffer.toString('base64')}`;
+    }
 
     const status = await this.formatStatusMessage(mediaData);
 

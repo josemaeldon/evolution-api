@@ -194,7 +194,8 @@ function ContactStatuses() {
       await refetch();
     } catch (error) {
       console.error("Error publishing status:", error);
-      toast.error("Não foi possível publicar o status");
+      const responseData = (error as { response?: { data?: { message?: string; error?: string } } }).response?.data;
+      toast.error(responseData?.message || responseData?.error || "Não foi possível publicar o status");
     } finally {
       setPublishing(false);
     }
