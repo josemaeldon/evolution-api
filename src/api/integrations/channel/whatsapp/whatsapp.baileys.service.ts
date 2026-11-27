@@ -5767,10 +5767,51 @@ export class BaileysStartupService extends ChannelStartupService {
     const contactsByJid = new Map(participantContacts.map((contact) => [contact.remoteJid, contact]));
     const senderNamesFromHistory = new Map<string, string>();
     for (const message of messages) {
-      if (!this.isUsefulGroupSenderName(message.pushName)) continue;
-      const key = message.key as { participant?: string; participantAlt?: string };
+      const key = message.key as { fromMe?: boolean; participant?: string; participantAlt?: string };
+      if (key.fromMe || !this.isUsefulGroupSenderName(message.pushName)) continue;
       for (const jid of [key.participant, key.participantAlt]) {
-        if (jid) senderNamesFromHistory.set(normalizeParticipantJid(jid), message.pushName.trim());
+        if (jid && !senderNamesFromHistory.has(normalizeParticipantJid(jid))) {
+          senderNamesFromHistory.set(normalizeParticipantJid(jid), message.pushName.trim());
+        }
+      }
+    }
+
+    // A sender's name may be present on an older page or in another group of this instance.
+    const unresolvedJids = participantJids.filter((jid) => {
+      const normalized = normalizeParticipantJid(jid);
+      const mapped = participantJidMappings.get(jid);
+      const contact = contactsByJid.get(normalized) || (mapped && contactsByJid.get(mapped));
+      return !senderNamesFromHistory.has(normalized) && !this.isUsefulGroupSenderName(contact?.pushName);
+    });
+    if (unresolvedJids.length) {
+      const lookupJids = [
+        ...new Set(
+          unresolvedJids
+            .flatMap((jid) => [jid, normalizeParticipantJid(jid), participantJidMappings.get(jid)])
+            .filter((jid): jid is string => Boolean(jid)),
+        ),
+      ];
+      const historyMessages = await this.prismaRepository.message.findMany({
+        where: {
+          instanceId: this.instanceId,
+          pushName: { not: null },
+          OR: lookupJids.flatMap((jid) => [
+            { key: { path: ['participant'], equals: jid } },
+            { key: { path: ['participantAlt'], equals: jid } },
+          ]),
+        },
+        select: { key: true, pushName: true },
+        orderBy: { messageTimestamp: 'desc' },
+        take: 2000,
+      });
+      for (const message of historyMessages) {
+        const key = message.key as { fromMe?: boolean; participant?: string; participantAlt?: string };
+        if (key.fromMe || !this.isUsefulGroupSenderName(message.pushName)) continue;
+        for (const jid of [key.participant, key.participantAlt]) {
+          if (jid && !senderNamesFromHistory.has(normalizeParticipantJid(jid))) {
+            senderNamesFromHistory.set(normalizeParticipantJid(jid), message.pushName.trim());
+          }
+        }
       }
     }
 
@@ -5795,11 +5836,8 @@ export class BaileysStartupService extends ChannelStartupService {
         const matchingContacts = [...participantCandidates.map(normalizeParticipantJid), ...resolvedCandidates]
           .map((jid) => contactsByJid.get(jid))
           .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact));
-        const meaningfulName = (name?: string | null) => {
-          const value = name?.trim();
-          return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
-        };
-        const historyName = participantCandidates
+        const meaningfulName = (name?: string | null) => (this.isUsefulGroupSenderName(name) ? name.trim() : undefined);
+        const historyName = [...participantCandidates, ...resolvedCandidates]
           .map((jid) => senderNamesFromHistory.get(normalizeParticipantJid(jid)))
           .find(Boolean);
         const customName = matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean);

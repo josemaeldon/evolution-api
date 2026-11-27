@@ -55,6 +55,11 @@ type MessagesProps = {
 // Utility function to format dates like WhatsApp
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
+const usefulSenderName = (name?: string | null) => {
+  const value = name?.trim();
+  return value && !/^\+?\d[\d\s().:-]*$/.test(value) && !/@(?:lid|s\.whatsapp\.net)$/i.test(value) ? value : undefined;
+};
+
 const formatDateSeparator = (date: Date, t: TFn, locale: string): string => {
   const today = new Date();
   const yesterday = new Date(today);
@@ -1119,6 +1124,7 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
       messageMap.set(message.key.id, {
         ...stored,
         ...message,
+        pushName: usefulSenderName(message.pushName) || usefulSenderName(stored?.pushName) || message.pushName || stored?.pushName,
         managerSenderId: message.managerSenderId ?? stored?.managerSenderId,
         managerSenderName: message.managerSenderName ?? stored?.managerSenderName,
         managerSigned: message.managerSigned ?? stored?.managerSigned,
@@ -1571,20 +1577,17 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     const participantCandidates = [participant, (message.key as typeof message.key & { participantAlt?: string }).participantAlt]
       .filter((jid): jid is string => Boolean(jid))
       .map(normalizeJid);
-    const senderContacts = participantCandidates.map((jid) => contactsByCanonicalJid.get(jid));
-    const meaningfulName = (name?: string) => {
-      const value = name?.trim();
-      return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
-    };
-    const customSenderName = senderContacts.map((contact) => meaningfulName(contact?.customName)).find(Boolean);
-    const contactSenderName = senderContacts.map((contact) => meaningfulName(contact?.pushName)).find(Boolean);
-    const groupSenderName = participantCandidates
-      .map((jid) => groupParticipantIdentity.names.get(jid) || groupParticipantIdentity.names.get(jid.split("@")[0]))
-      .find(Boolean);
     const groupSenderPhone = participantCandidates
       .map((jid) => groupParticipantIdentity.phones.get(jid) || groupParticipantIdentity.phones.get(jid.split("@")[0]))
       .find(Boolean);
-    const messageSenderName = meaningfulName(message.pushName);
+    const senderContacts = [...participantCandidates, ...(groupSenderPhone ? [`${groupSenderPhone}@s.whatsapp.net`] : [])]
+      .map((jid) => contactsByCanonicalJid.get(jid));
+    const customSenderName = senderContacts.map((contact) => usefulSenderName(contact?.customName)).find(Boolean);
+    const contactSenderName = senderContacts.map((contact) => usefulSenderName(contact?.pushName)).find(Boolean);
+    const groupSenderName = participantCandidates
+      .map((jid) => groupParticipantIdentity.names.get(jid) || groupParticipantIdentity.names.get(jid.split("@")[0]))
+      .find(Boolean);
+    const messageSenderName = usefulSenderName(message.pushName);
     const senderName = customSenderName || messageSenderName || contactSenderName || groupSenderName || groupSenderPhone || (participant ? normalizeJid(participant).split("@")[0] : "");
 
     return (
