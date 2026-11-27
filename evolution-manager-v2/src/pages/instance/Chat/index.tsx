@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
-import { ArrowLeft, ContactRound, ListFilter, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
+import { ArrowLeft, ContactRound, ListFilter, MessageCircle, MoreVertical, Plus, Search, Send, Trash2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
@@ -22,11 +22,30 @@ import { cn } from "@/lib/utils";
 
 import { connectSocket, disconnectSocket } from "@/services/websocket/socket";
 
-import { Chat as ChatType } from "@/types/evolution.types";
-
+import { Chat as ChatType, Message } from "@/types/evolution.types";
 import { useMediaQuery } from "@/utils/useMediaQuery";
 
 import { Messages } from "./messages";
+
+function ContactStatusMedia({ message, instanceName, token }: { message: Message; instanceName: string; token: string }) {
+  const { data, isPending } = useQuery({
+    queryKey: ["chat", "status-media", instanceName, message.key.id],
+    queryFn: async () => (await api.post<{ base64?: string; mimetype?: string }>(
+      `/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
+      { message },
+      { headers: { apikey: token } },
+    )).data,
+    retry: false,
+  });
+  const content = message.message || {};
+  const mediaType = content.imageMessage ? "image" : content.videoMessage ? "video" : content.audioMessage ? "audio" : null;
+  if (!mediaType) return null;
+  if (isPending || !data?.base64) return <p className="text-sm text-muted-foreground">{isPending ? "Carregando status..." : "Mídia indisponível"}</p>;
+  const src = `data:${data.mimetype || (mediaType === "video" ? "video/mp4" : mediaType === "audio" ? "audio/ogg" : "image/jpeg")};base64,${data.base64}`;
+  if (mediaType === "video") return <video src={src} controls className="max-h-[50vh] max-w-full rounded-lg" />;
+  if (mediaType === "audio") return <audio src={src} controls className="max-w-full" />;
+  return <img src={src} alt="Status do contato" className="max-h-[50vh] max-w-full rounded-lg object-contain" />;
+}
 
 const formatJid = (remoteJid: string): string => remoteJid.split("@")[0];
 const toPickerDate = (date: string) => (date ? `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}` : "");
@@ -75,6 +94,10 @@ function Chat() {
   const [kind, setKind] = useState<ChatKind>("contacts");
   const [labelFilter, setLabelFilter] = useState("");
   const [contactsOpen, setContactsOpen] = useState(false);
+  const [statusesOpen, setStatusesOpen] = useState(false);
+  const [statusText, setStatusText] = useState("");
+  const [statusFile, setStatusFile] = useState<File | null>(null);
+  const [sendingStatus, setSendingStatus] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
   const [conversationSearch, setConversationSearch] = useState("");
@@ -86,6 +109,13 @@ function Chat() {
   const localDate = getLocalDate();
 
   const { data: chats } = useFindChats({ instanceName: instance?.name, refetchInterval: 5000 });
+  const { data: contactStatuses = [], isLoading: statusesLoading, refetch: refreshStatuses } = useQuery<Message[]>({
+    queryKey: ["chats", "contactStatuses", instance?.name],
+    queryFn: async () => (await api.get(`/chat/findContactStatuses/${instance!.name}`, { headers: { apikey: instance!.token } })).data,
+    enabled: !!instance?.name && statusesOpen,
+    staleTime: 15000,
+    refetchInterval: 30000,
+  });
   const { data: participatingGroups, isSuccess: participatingGroupsLoaded } = useQuery<Array<{ id: string }>>({
     queryKey: ["chats", "participatingGroups", instance?.name],
     queryFn: async () =>
@@ -342,6 +372,34 @@ function Chat() {
     }
   };
 
+  const publishStatus = async () => {
+    if (!instance || sendingStatus || (!statusFile && !statusText.trim())) return;
+    setSendingStatus(true);
+    try {
+      const form = new FormData();
+      form.append("type", statusFile ? (statusFile.type.startsWith("video/") ? "video" : "image") : "text");
+      form.append("allContacts", "true");
+      if (statusFile) {
+        form.append("file", statusFile);
+        if (statusText.trim()) form.append("caption", statusText.trim());
+      } else {
+        form.append("content", statusText.trim());
+        form.append("backgroundColor", "#075e54");
+        form.append("font", "1");
+      }
+      await api.post(`/message/sendStatus/${instance.name}`, form, { headers: { apikey: instance.token } });
+      setStatusText("");
+      setStatusFile(null);
+      toast.success("Status publicado para seus contatos");
+      await refreshStatuses();
+    } catch (error) {
+      console.error("Error publishing status:", error);
+      toast.error("Não foi possível publicar o status");
+    } finally {
+      setSendingStatus(false);
+    }
+  };
+
   const leaveGroup = async () => {
     if (!instance || !remoteJid || !window.confirm("Sair deste grupo? Você deixará de receber novas mensagens.")) return;
     try {
@@ -460,6 +518,9 @@ function Chat() {
             </Button>
             <Button type="button" size="icon" variant="outline" title="Gerenciar contatos" aria-label="Gerenciar contatos" onClick={() => setContactsOpen(true)}>
               <ContactRound className="h-4 w-4" />
+            </Button>
+            <Button type="button" size="icon" variant="outline" title="Status" aria-label="Status" onClick={() => setStatusesOpen(true)}>
+              <MessageCircle className="h-4 w-4" />
             </Button>
           </div>
 
@@ -627,6 +688,51 @@ function Chat() {
           </div>
         )}
       </main>
+
+      <Dialog open={statusesOpen} onOpenChange={setStatusesOpen}>
+        <DialogContent className="flex max-h-[min(85dvh,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-xl">
+          <DialogTitle>Status</DialogTitle>
+          <DialogDescription>Veja os status recentes e publique um status para seus contatos.</DialogDescription>
+          <div className="space-y-2 rounded-lg border p-3">
+            <Input
+              type="file"
+              accept="image/*,video/*"
+              aria-label="Selecionar foto ou vídeo para o status"
+              onChange={(event) => setStatusFile(event.target.files?.[0] || null)}
+            />
+            <Input
+              value={statusText}
+              onChange={(event) => setStatusText(event.target.value)}
+              placeholder={statusFile ? "Legenda (opcional)" : "Escreva um status de texto"}
+              maxLength={700}
+            />
+            <Button type="button" onClick={publishStatus} disabled={sendingStatus || (!statusFile && !statusText.trim())}>
+              <Send className="mr-2 h-4 w-4" /> {sendingStatus ? "Publicando..." : "Publicar para contatos"}
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto" aria-label="Status recentes dos contatos">
+            {statusesLoading && <p className="py-4 text-center text-sm text-muted-foreground">Carregando status...</p>}
+            {!statusesLoading && contactStatuses.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Nenhum status recente recebido. A instância precisa estar conectada e salvar mensagens no banco.</p>}
+            {contactStatuses.map((status) => {
+              const senderJid = status.key.participant || status.key.remoteJid;
+              const sender = contacts.find((contact) => contact.remoteJid === senderJid);
+              const name = sender?.pushName || status.pushName || formatJid(senderJid);
+              const body = status.message || {};
+              const text = body.conversation || body.extendedTextMessage?.text || body.imageMessage?.caption || body.videoMessage?.caption || "";
+              return (
+                <article key={status.id || status.key.id} className="space-y-2 rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium">{name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{new Date(Number(status.messageTimestamp) * 1000).toLocaleString("pt-BR")}</span>
+                  </div>
+                  <ContactStatusMedia message={status} instanceName={instance!.name} token={instance!.token} />
+                  {text && <p className="whitespace-pre-wrap text-sm">{text}</p>}
+                </article>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={conversationOpen} onOpenChange={setConversationOpen}>
         <DialogContent className="max-h-[85dvh] sm:max-w-lg">

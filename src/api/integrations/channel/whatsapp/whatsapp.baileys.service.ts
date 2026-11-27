@@ -1542,7 +1542,7 @@ export class BaileysStartupService extends ChannelStartupService {
             await this.client.readMessages([received.key]);
           }
 
-          if (this.localSettings.readStatus && received.key.id === 'status@broadcast') {
+          if (this.localSettings.readStatus && received.key.remoteJid === 'status@broadcast') {
             await this.client.readMessages([received.key]);
           }
 
@@ -3035,7 +3035,7 @@ export class BaileysStartupService extends ChannelStartupService {
         throw new BadRequestException('Contacts not found');
       }
 
-      status.statusJidList = contacts.filter((contact) => contact.pushName).map((contact) => contact.remoteJid);
+      status.statusJidList = contacts.map((contact) => contact.remoteJid);
     }
 
     if (!status.statusJidList?.length && !status.allContacts) {

@@ -241,6 +241,10 @@ export class ChatRouter extends RouterBroker {
 
         return res.status(HttpStatus.OK).json(response);
       })
+      .get(this.routerPath('findContactStatuses'), ...guards, async (req, res) => {
+        const response = await chatController.fetchContactStatuses(req.params as unknown as InstanceDto);
+        return res.status(HttpStatus.OK).json(response);
+      })
       .post(this.routerPath('findChats'), ...guards, async (req, res) => {
         const response = await this.dataValidate<Query<Contact>>({
           request: req,

@@ -764,6 +764,22 @@ export class ChannelStartupService {
     });
   }
 
+  public async fetchContactStatuses() {
+    const twentyFourHoursAgo = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
+    return this.prismaRepository.message.findMany({
+      where: {
+        instanceId: this.instanceId,
+        messageTimestamp: { gte: twentyFourHoursAgo },
+        AND: [
+          { key: { path: ['remoteJid'], equals: 'status@broadcast' } },
+          { key: { path: ['fromMe'], equals: false } },
+        ],
+      },
+      orderBy: { messageTimestamp: 'asc' },
+      take: 500,
+    });
+  }
+
   public async findChatByRemoteJid(remoteJid: string) {
     if (!remoteJid) return null;
     return await this.prismaRepository.chat.findFirst({

@@ -123,9 +123,14 @@ export class MessageRouter extends RouterBroker {
 
         return res.status(HttpStatus.CREATED).json(response);
       })
-      // TODO: Revisar funcionamento do envio de Status
       .post(this.routerPath('sendStatus'), ...guards, upload.single('file'), async (req, res) => {
         const bodyData = req.body;
+        if (typeof bodyData.allContacts === 'string') {
+          bodyData.allContacts = bodyData.allContacts === 'true';
+        }
+        if (typeof bodyData.font === 'string' && bodyData.font.trim()) {
+          bodyData.font = Number(bodyData.font);
+        }
 
         const response = await this.dataValidate<SendStatusDto>({
           request: req,

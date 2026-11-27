@@ -91,6 +91,10 @@ export class ChatController {
     return await this.waMonitor.waInstances[instanceName].fetchStatusMessage(query);
   }
 
+  public async fetchContactStatuses({ instanceName }: InstanceDto) {
+    return await this.waMonitor.waInstances[instanceName].fetchContactStatuses();
+  }
+
   public async fetchChats({ instanceName }: InstanceDto, query: Query<Contact>) {
     return await this.waMonitor.waInstances[instanceName].fetchChats(query);
   }

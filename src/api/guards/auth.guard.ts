@@ -24,6 +24,7 @@ const USER_CHAT_ACTIONS = new Set([
   'deleteContact',
   'deleteConversation',
   'findMessages',
+  'findContactStatuses',
   'findChats',
   'findChatByRemoteJid',
   'fetchBusinessProfile',
