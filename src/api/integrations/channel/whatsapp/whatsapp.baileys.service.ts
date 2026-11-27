@@ -4981,16 +4981,40 @@ export class BaileysStartupService extends ChannelStartupService {
     try {
       const participants = (await this.client.groupMetadata(id.groupJid)).participants;
       const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, '');
-      const participantJids = participants.flatMap((participant) => [participant.id, normalizeJid(participant.id)]);
+      const participantPhoneJids = new Map<string, string>();
+      await Promise.all(
+        participants.map(async (participant) => {
+          const normalizedId = normalizeJid(participant.id);
+          if (!normalizedId.endsWith('@lid')) return;
+          try {
+            const phoneJid = await this.client.signalRepository.lidMapping.getPNForLID(normalizedId);
+            if (phoneJid) participantPhoneJids.set(participant.id, normalizeJid(phoneJid));
+          } catch {
+            // Keep the LID when WhatsApp has no phone number mapping.
+          }
+        }),
+      );
+      const participantJids = participants
+        .flatMap((participant) => [
+          participant.id,
+          normalizeJid(participant.id),
+          participantPhoneJids.get(participant.id),
+        ])
+        .filter((jid): jid is string => Boolean(jid));
       const contacts = await this.prismaRepository.contact.findMany({
         where: { instanceId: this.instanceId, remoteJid: { in: [...new Set(participantJids)] } },
       });
       const contactsByJid = new Map(contacts.map((contact) => [contact.remoteJid, contact]));
       const parsedParticipants = participants.map((participant) => {
-        const contact = contactsByJid.get(participant.id) || contactsByJid.get(normalizeJid(participant.id));
+        const phoneJid = participantPhoneJids.get(participant.id);
+        const contact =
+          contactsByJid.get(participant.id) ||
+          contactsByJid.get(normalizeJid(participant.id)) ||
+          (phoneJid ? contactsByJid.get(phoneJid) : undefined);
         return {
           ...participant,
           name: contact?.customName?.trim() || contact?.pushName?.trim() || participant.name,
+          phoneNumber: phoneJid ? phoneJid.split('@')[0] : participant.phoneNumber,
           imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
         };
       });

@@ -697,10 +697,35 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
   const locale = i18n.language;
   const { instance } = useInstance();
   const { data: managerAccount } = useManagerAccount();
+  const { remoteJid } = useParams<{ remoteJid: string }>();
+  const isGroupChat = Boolean(remoteJid?.endsWith("@g.us"));
+  const { data: groupParticipants = [] } = useQuery({
+    queryKey: ["groupParticipants", instance?.name, remoteJid],
+    queryFn: async () => {
+      const response = await api.get(`/group/participants/${instance!.name}`, { params: { groupJid: remoteJid } });
+      return response.data?.participants || [];
+    },
+    enabled: Boolean(instance?.name && isGroupChat && remoteJid),
+    staleTime: 5 * 60 * 1000,
+  });
   const contactsByCanonicalJid = useMemo(() => {
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
     return new Map(contacts.map((contact) => [normalizeJid(contact.remoteJid), contact]));
   }, [contacts]);
+  const groupParticipantNames = useMemo(() => {
+    const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
+    const names = new Map<string, string>();
+    groupParticipants.forEach((participant: { id?: string; phoneNumber?: string; name?: string }) => {
+      const name = participant.name?.trim();
+      if (!name) return;
+      [participant.id, participant.phoneNumber].filter((jid): jid is string => Boolean(jid)).forEach((jid) => {
+        const normalized = normalizeJid(jid);
+        names.set(normalized, name);
+        names.set(normalized.split("@")[0], name);
+      });
+    });
+    return names;
+  }, [groupParticipants]);
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const sendLockRef = useRef(false);
@@ -743,7 +768,6 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
   const { sendMedia: sendMediaMutation } = useSendMedia();
   const { sendAudio: sendAudioMutation } = useSendAudio();
 
-  const { remoteJid } = useParams<{ remoteJid: string }>();
   const { contactTyping, updateTyping, stopTyping } = useChatPresence(instance?.name, instance?.token, instance?.integration, remoteJid);
 
   useEffect(() => setRecordingActive(false), [remoteJid]);
@@ -1524,9 +1548,12 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
       .map(normalizeJid);
     const senderContact = participantCandidates.map((jid) => contactsByCanonicalJid.get(jid)).find(Boolean);
     const contactSenderName = senderContact?.customName?.trim() || senderContact?.pushName?.trim();
+    const groupSenderName = participantCandidates
+      .map((jid) => groupParticipantNames.get(jid) || groupParticipantNames.get(jid.split("@")[0]))
+      .find(Boolean);
     const messageSenderName = message.pushName?.trim();
     const hasNumericSenderName = Boolean(messageSenderName && /^\+?\d[\d:]*$/.test(messageSenderName));
-    const senderName = contactSenderName || (!hasNumericSenderName ? messageSenderName : "") || (participant ? normalizeJid(participant).split("@")[0] : "");
+    const senderName = contactSenderName || groupSenderName || (!hasNumericSenderName ? messageSenderName : "") || (participant ? normalizeJid(participant).split("@")[0] : "");
 
     return (
       <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-start">
