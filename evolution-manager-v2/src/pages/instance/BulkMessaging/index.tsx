@@ -10,6 +10,7 @@ import { useInstance } from "@/contexts/InstanceContext";
 import { saasApi } from "@/lib/queries/saas";
 
 type Label = { id: string; name: string; color: string };
+type Group = { id: string; subject: string; size: number };
 type Campaign = { id: string; status: string; message: string; mediaFileName?: string | null; intervalSeconds: number; createdAt: string; counts: Record<string, number> };
 type Organization = { labels: Label[] };
 
@@ -41,8 +42,9 @@ export default function BulkMessaging() {
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [randomCount, setRandomCount] = useState("");
-  const [mode, setMode] = useState<"labels" | "random">("labels");
+  const [mode, setMode] = useState<"labels" | "random" | "groups">("labels");
   const [confirmedConsent, setConfirmedConsent] = useState(false);
   const localDate = getLocalDate();
   useEffect(() => {
@@ -65,6 +67,11 @@ export default function BulkMessaging() {
     enabled: !!instance?.id,
     refetchInterval: 15000,
   });
+  const groups = useQuery<Group[]>({
+    queryKey: ["bulkCampaignGroups", instance?.id],
+    queryFn: async () => (await saasApi.get(`/saas/instance/${instance?.id}/groups`)).data,
+    enabled: !!instance?.id && instance.integration === "WHATSAPP-BAILEYS",
+  });
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["bulkCampaigns", instance?.id] });
     queryClient.invalidateQueries({ queryKey: ["contactOrganization", instance?.id] });
@@ -85,14 +92,17 @@ export default function BulkMessaging() {
         ...(image && imageData ? { image: { data: imageData, mimetype: image.type, fileName: image.name } } : {}),
         labelIds: mode === "labels" ? selectedLabels : [],
         ...(mode === "labels" && selectedLabels.includes(BIRTHDAY_LABEL_ID) ? { birthdayDate: localDate } : {}),
+        groupJids: mode === "groups" ? selectedGroups : [],
         randomCount: mode === "random" ? Number(randomCount) : 0,
         intervalSeconds,
+        confirmedConsent: true,
       });
       setMessage("");
       setImage(null);
       setIntervalSeconds(20);
       setConfirmedConsent(false);
       setSelectedLabels([]);
+      setSelectedGroups([]);
       setRandomCount("");
       invalidate();
       toast.success("Campanha adicionada à fila");
@@ -163,6 +173,9 @@ export default function BulkMessaging() {
           <Button type="button" variant={mode === "random" ? "default" : "outline"} onClick={() => setMode("random")}>
             Seleção aleatória
           </Button>
+          <Button type="button" variant={mode === "groups" ? "default" : "outline"} onClick={() => setMode("groups")}>
+            Participantes de grupos
+          </Button>
         </div>
         <div className="max-w-xs">
           <label htmlFor="campaignInterval" className="mb-1 block text-sm font-medium">
@@ -199,12 +212,40 @@ export default function BulkMessaging() {
               <p className="w-full text-xs text-muted-foreground">A etiqueta é atualizada diariamente e inclui apenas contatos aniversariantes que autorizaram campanhas.</p>
             )}
           </div>
-        ) : (
+        ) : mode === "random" ? (
           <div className="max-w-xs">
             <label htmlFor="randomCount" className="mb-1 block text-sm font-medium">
               Quantidade aleatória (máximo 500)
             </label>
             <Input id="randomCount" type="number" min={1} max={500} value={randomCount} onChange={(event) => setRandomCount(event.target.value)} placeholder="Ex.: 50" />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Selecione um ou mais grupos</p>
+            {instance?.integration !== "WHATSAPP-BAILEYS" ? (
+              <p className="text-sm text-muted-foreground">O envio para participantes de grupos está disponível em instâncias Baileys.</p>
+            ) : groups.isPending ? (
+              <p className="text-sm text-muted-foreground">Carregando grupos...</p>
+            ) : groups.isError ? (
+              <p className="text-sm text-destructive">Não foi possível carregar os grupos. Confira se a instância está conectada.</p>
+            ) : groups.data?.length ? (
+              <div className="flex max-h-64 flex-col gap-2 overflow-y-auto rounded-md border p-2">
+                {groups.data.map((group) => (
+                  <label key={group.id} className="inline-flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroups.includes(group.id)}
+                      onChange={(event) => setSelectedGroups(event.target.checked ? [...selectedGroups, group.id] : selectedGroups.filter((id) => id !== group.id))}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{group.subject || group.id}</span>
+                    <span className="text-xs text-muted-foreground">{group.size} participantes</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum grupo encontrado na instância.</p>
+            )}
+            <p className="text-xs text-muted-foreground">Os participantes já desautorizados serão ignorados. Confirme a autorização antes de iniciar a campanha.</p>
           </div>
         )}
         <div>
@@ -288,7 +329,11 @@ export default function BulkMessaging() {
         </label>
         <Button
           onClick={createCampaign}
-          disabled={(!message.trim() && !image) || !confirmedConsent || (mode === "labels" ? !selectedLabels.length : !Number(randomCount) || Number(randomCount) > 500)}>
+          disabled={
+            (!message.trim() && !image) ||
+            !confirmedConsent ||
+            (mode === "labels" ? !selectedLabels.length : mode === "random" ? !Number(randomCount) || Number(randomCount) > 500 : !selectedGroups.length)
+          }>
           <Send className="mr-2 h-4 w-4" />
           Adicionar à fila
         </Button>

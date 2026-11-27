@@ -5531,18 +5531,51 @@ export class BaileysStartupService extends ChannelStartupService {
       },
     });
 
-    const formattedMessages = messages.map((message) => {
-      const messageKey = message.key as { fromMe: boolean; remoteJid: string; id: string; participant?: string };
+    const participantJids = Array.from(
+      new Set(
+        messages.flatMap((message) => {
+          const key = message.key as { participant?: string; participantAlt?: string };
+          return [key.participant, key.participantAlt].filter((jid): jid is string => Boolean(jid));
+        }),
+      ),
+    );
+    const participantContacts = participantJids.length
+      ? await this.prismaRepository.contact.findMany({
+          where: { instanceId: this.instanceId, remoteJid: { in: participantJids } },
+          select: { remoteJid: true, pushName: true, customName: true },
+        })
+      : [];
+    const contactsByJid = new Map(participantContacts.map((contact) => [contact.remoteJid, contact]));
 
-      if (!message.pushName) {
-        if (messageKey.fromMe) {
-          message.pushName = 'Você';
-        } else if (message.contextInfo) {
+    const formattedMessages = messages.map((message) => {
+      const messageKey = message.key as {
+        fromMe: boolean;
+        remoteJid: string;
+        id: string;
+        participant?: string;
+        participantAlt?: string;
+      };
+
+      if (messageKey.fromMe) {
+        if (!message.pushName) message.pushName = 'Você';
+      } else {
+        const participantCandidates = [messageKey.participant, messageKey.participantAlt].filter((jid): jid is string =>
+          Boolean(jid),
+        );
+        const contact = participantCandidates.map((jid) => contactsByJid.get(jid)).find(Boolean);
+        const contactName = contact?.customName?.trim() || contact?.pushName?.trim();
+        const participantJid = participantCandidates[0];
+
+        if (contactName) {
+          message.pushName = contactName;
+        } else if (!message.pushName && participantJid) {
+          message.pushName = participantJid.split('@')[0];
+        }
+
+        if (!message.pushName && message.contextInfo) {
           const contextInfo = message.contextInfo as { participant?: string };
           if (contextInfo.participant) {
             message.pushName = contextInfo.participant.split('@')[0];
-          } else if (messageKey.participant) {
-            message.pushName = messageKey.participant.split('@')[0];
           }
         }
       }

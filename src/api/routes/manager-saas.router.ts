@@ -4,7 +4,7 @@ import {
   MINIO_AVAILABLE,
   STORAGE_BACKEND,
 } from '@api/integrations/storage/s3/libs/minio.server';
-import { prismaRepository, sendMessageController } from '@api/server.module';
+import { prismaRepository, sendMessageController, waMonitor } from '@api/server.module';
 import {
   clearSessionCookie,
   createSession,
@@ -48,7 +48,7 @@ async function managedInstance(req: any, res: any) {
       id: req.params.instanceId,
       ...(principal.role === 'superadmin' ? {} : { companyId: principal.companyId }),
     },
-    select: { id: true, name: true },
+    select: { id: true, name: true, integration: true },
   });
   if (!instance) {
     res.status(404).json(fail('Instância não encontrada'));
@@ -885,6 +885,28 @@ router.put('/instance/:instanceId/contacts/marketing-opt-in', async (req, res) =
   return res.json({ updated: result.count, marketingOptIn });
 });
 
+router.get('/instance/:instanceId/groups', async (req, res) => {
+  const instance = await managedInstance(req, res);
+  if (!instance) return;
+  if (instance.integration !== 'WHATSAPP-BAILEYS') {
+    return res.status(400).json(fail('O envio para participantes de grupos está disponível em instâncias Baileys'));
+  }
+  const waInstance = waMonitor.waInstances[instance.name];
+  if (!waInstance) return res.status(409).json(fail('Conecte a instância para carregar os grupos'));
+  try {
+    const groups = await waInstance.fetchAllGroups({ getParticipants: 'false' });
+    return res.json(
+      groups.map((group: { id: string; subject: string; size: number }) => ({
+        id: group.id,
+        subject: group.subject,
+        size: group.size,
+      })),
+    );
+  } catch {
+    return res.status(502).json(fail('Não foi possível carregar os grupos da instância'));
+  }
+});
+
 router.get('/instance/:instanceId/campaigns', async (req, res) => {
   const instance = await managedInstance(req, res);
   if (!instance) return;
@@ -925,6 +947,10 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     : [];
   const birthdaySelected = labelIds.includes(BIRTHDAY_LABEL_ID);
   const selectedLabelIds = labelIds.filter((id) => id !== BIRTHDAY_LABEL_ID);
+  const groupJids: string[] = Array.isArray(req.body?.groupJids)
+    ? [...new Set<string>(req.body.groupJids.map((id: unknown) => String(id)))]
+    : [];
+  const confirmedConsent = req.body?.confirmedConsent === true;
   const birthdayDate = birthdaySelected ? parseCalendarDate(req.body?.birthdayDate) : null;
   const randomCount = Number(req.body?.randomCount || 0);
   const intervalSeconds = Number(req.body?.intervalSeconds ?? 30);
@@ -945,12 +971,16 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
     (!message && !imageProvided) ||
     message.length > 4000 ||
     labelIds.length > 50 ||
+    groupJids.length > 50 ||
+    groupJids.some((jid) => !jid.endsWith('@g.us')) ||
+    !confirmedConsent ||
+    (groupJids.length > 0 && (labelIds.length > 0 || randomCount > 0)) ||
     (birthdaySelected && !birthdayDate) ||
     !Number.isInteger(intervalSeconds) ||
     intervalSeconds < 20 ||
     intervalSeconds > 60 ||
     intervalSeconds % 10 !== 0 ||
-    (!labelIds.length && !randomCount) ||
+    (!labelIds.length && !randomCount && !groupJids.length) ||
     (imageProvided &&
       (typeof image.data !== 'string' ||
         !mediaData ||
@@ -969,33 +999,96 @@ router.post('/instance/:instanceId/campaigns', async (req, res) => {
   ) {
     return res.status(400).json(fail('Uma ou mais etiquetas são inválidas'));
   }
-  let contacts = await prismaRepository.contact.findMany({
-    where: {
-      instanceId: instance.id,
-      marketingOptIn: true,
-      remoteJid: { endsWith: '@s.whatsapp.net' },
-      ...(selectedLabelIds.length || birthdaySelected
-        ? {
-            OR: [
-              ...(selectedLabelIds.length ? [{ ManagerLabels: { some: { labelId: { in: selectedLabelIds } } } }] : []),
-              ...(birthdayDate
-                ? [
-                    {
-                      birthDate: {
-                        gte: birthdayDate.date,
-                        lt: new Date(birthdayDate.date.getTime() + 24 * 60 * 60 * 1000),
-                      },
-                    },
-                  ]
-                : []),
-            ],
+
+  let groupParticipantContacts: { remoteJid: string }[] = [];
+  if (groupJids.length) {
+    if (instance.integration !== 'WHATSAPP-BAILEYS') {
+      return res.status(400).json(fail('O envio para participantes de grupos está disponível em instâncias Baileys'));
+    }
+    const waInstance = waMonitor.waInstances[instance.name];
+    if (!waInstance) return res.status(409).json(fail('Conecte a instância para consultar os participantes'));
+
+    const participants = new Map<string, string>();
+    try {
+      const availableGroups = await waInstance.fetchAllGroups({ getParticipants: 'false' });
+      const availableGroupIds = new Set(availableGroups.map((group: { id: string }) => group.id));
+      if (groupJids.some((groupJid) => !availableGroupIds.has(groupJid))) {
+        return res.status(400).json(fail('Um ou mais grupos não pertencem à instância'));
+      }
+      for (const groupJid of groupJids) {
+        const result = await waInstance.findParticipants({ groupJid });
+        for (const participant of result?.participants || []) {
+          const rawJid = String(participant.phoneNumber || participant.id || '');
+          const remoteJid = rawJid.endsWith('@s.whatsapp.net')
+            ? rawJid
+            : rawJid.includes('@')
+              ? ''
+              : `${rawJid.replace(/\D/g, '')}@s.whatsapp.net`;
+          if (remoteJid !== '@s.whatsapp.net' && remoteJid) {
+            participants.set(remoteJid, String(participant.name || ''));
           }
-        : {}),
-    },
-    select: { remoteJid: true },
-    distinct: ['remoteJid'],
-    take: 5000,
-  });
+        }
+      }
+    } catch {
+      return res.status(502).json(fail('Não foi possível consultar os participantes dos grupos'));
+    }
+
+    const participantJids = [...participants.keys()];
+    if (!participantJids.length)
+      return res.status(400).json(fail('Não foram encontrados participantes com número disponível'));
+    if (participantJids.length > 500) {
+      return res.status(400).json(fail('A campanha ultrapassa o limite de 500 participantes. Selecione menos grupos.'));
+    }
+    await prismaRepository.contact.createMany({
+      data: participantJids.map((remoteJid) => ({
+        instanceId: instance.id,
+        remoteJid,
+        ...(participants.get(remoteJid) ? { pushName: participants.get(remoteJid) } : {}),
+      })),
+      skipDuplicates: true,
+    });
+    groupParticipantContacts = participantJids.map((remoteJid) => ({ remoteJid }));
+  }
+  let contacts = groupJids.length
+    ? await prismaRepository.contact.findMany({
+        where: {
+          instanceId: instance.id,
+          marketingOptIn: true,
+          remoteJid: { in: groupParticipantContacts.map(({ remoteJid }) => remoteJid) },
+        },
+        select: { remoteJid: true },
+        distinct: ['remoteJid'],
+        take: 5000,
+      })
+    : await prismaRepository.contact.findMany({
+        where: {
+          instanceId: instance.id,
+          marketingOptIn: true,
+          remoteJid: { endsWith: '@s.whatsapp.net' },
+          ...(selectedLabelIds.length || birthdaySelected
+            ? {
+                OR: [
+                  ...(selectedLabelIds.length
+                    ? [{ ManagerLabels: { some: { labelId: { in: selectedLabelIds } } } }]
+                    : []),
+                  ...(birthdayDate
+                    ? [
+                        {
+                          birthDate: {
+                            gte: birthdayDate.date,
+                            lt: new Date(birthdayDate.date.getTime() + 24 * 60 * 60 * 1000),
+                          },
+                        },
+                      ]
+                    : []),
+                ],
+              }
+            : {}),
+        },
+        select: { remoteJid: true },
+        distinct: ['remoteJid'],
+        take: 5000,
+      });
   if (randomCount) contacts = contacts.sort(() => Math.random() - 0.5).slice(0, randomCount);
   contacts = contacts.slice(0, 500);
   if (!contacts.length) return res.status(400).json(fail('Nenhum contato autorizado para receber esta campanha'));
