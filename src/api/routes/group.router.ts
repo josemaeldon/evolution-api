@@ -195,6 +195,16 @@ export class GroupRouter extends RouterBroker {
         });
 
         res.status(HttpStatus.OK).json(response);
+      })
+      .delete(this.routerPath('deleteGroup'), ...guards, async (req, res) => {
+        const response = await this.groupValidate<GroupJid>({
+          request: req,
+          schema: {},
+          ClassRef: GroupJid,
+          execute: (instance, data) => groupController.deleteGroup(instance, data),
+        });
+
+        res.status(HttpStatus.OK).json(response);
       });
   }
 

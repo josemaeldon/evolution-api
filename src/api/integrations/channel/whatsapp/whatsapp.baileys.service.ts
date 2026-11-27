@@ -5312,6 +5312,40 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  public async deleteGroup(id: GroupJid) {
+    try {
+      const metadata = await this.client.groupMetadata(id.groupJid);
+      const ownJid = jidNormalizedUser(this.client.user.id);
+      const ownPn = isLidUser(ownJid) ? await this.client.signalRepository.lidMapping.getPNForLID(ownJid) : ownJid;
+      const ownLid = ownPn ? await this.client.signalRepository.lidMapping.getLIDForPN(ownPn) : undefined;
+      const ownIds = new Set([ownJid, ownPn, ownLid].filter(Boolean).map((jid) => jidNormalizedUser(jid)));
+      const selfParticipant = metadata.participants.find((participant) =>
+        ownIds.has(jidNormalizedUser(participant.id)),
+      );
+
+      if (!selfParticipant || !selfParticipant.admin) {
+        throw new BadRequestException('Only group admins can delete a group');
+      }
+
+      const participantsToRemove = metadata.participants
+        .filter((participant) => !ownIds.has(jidNormalizedUser(participant.id)))
+        .map((participant) => participant.id);
+
+      if (participantsToRemove.length) {
+        const removals = await this.client.groupParticipantsUpdate(id.groupJid, participantsToRemove, 'remove');
+        const failedRemovals = removals.filter((result) => String(result.status) !== '200');
+        if (failedRemovals.length) {
+          throw new BadRequestException('Unable to remove all participants from the group');
+        }
+      }
+      await this.client.groupLeave(id.groupJid);
+      return { groupJid: id.groupJid, delete: true };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Unable to delete the group', error.toString());
+    }
+  }
+
   public async templateMessage() {
     throw new Error('Method not available in the Baileys service');
   }

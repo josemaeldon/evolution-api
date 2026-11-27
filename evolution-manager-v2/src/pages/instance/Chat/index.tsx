@@ -328,6 +328,40 @@ function Chat() {
     }
   };
 
+  const leaveGroup = async () => {
+    if (!instance || !remoteJid || !window.confirm("Sair deste grupo? Você deixará de receber novas mensagens.")) return;
+    try {
+      await api.delete(`/group/leaveGroup/${instance.name}`, {
+        data: { groupJid: remoteJid },
+        headers: { apikey: instance.token },
+      });
+      setRealtimeChats((current) => current.filter((chat) => chat.remoteJid !== remoteJid));
+      refreshChats();
+      handleBack();
+      toast.success("Você saiu do grupo");
+    } catch (error) {
+      console.error("Error leaving group:", error);
+      toast.error("Não foi possível sair do grupo");
+    }
+  };
+
+  const deleteGroup = async () => {
+    if (!instance || !remoteJid || !window.confirm("Apagar este grupo para todos? Os participantes serão removidos e a instância sairá do grupo.")) return;
+    try {
+      await api.delete(`/group/deleteGroup/${instance.name}`, {
+        data: { groupJid: remoteJid },
+        headers: { apikey: instance.token },
+      });
+      setRealtimeChats((current) => current.filter((chat) => chat.remoteJid !== remoteJid));
+      refreshChats();
+      handleBack();
+      toast.success("Grupo apagado");
+    } catch (error) {
+      console.error("Error deleting group:", error);
+      toast.error("Não foi possível apagar o grupo. Verifique se a instância é administradora.");
+    }
+  };
+
   const selectedContact = contacts.find((contact) => contact.remoteJid === remoteJid);
   const contactList = contacts.filter((contact) => contact.remoteJid.endsWith("@s.whatsapp.net")).sort((a, b) => (a.pushName || a.remoteJid).localeCompare(b.pushName || b.remoteJid));
   const normalizedSearch = conversationSearch
@@ -524,7 +558,21 @@ function Chat() {
               }}
               headerNameOverride={remoteJid.endsWith("@g.us") ? allChats.find((chat) => chat.remoteJid === remoteJid)?.pushName : selectedContact?.pushName}
               headerActions={
-                remoteJid.endsWith("@s.whatsapp.net") && (
+                remoteJid.endsWith("@g.us") ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" size="icon" variant="ghost" aria-label="Ações do grupo">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={leaveGroup}>Sair do grupo</DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive" onClick={deleteGroup}>
+                        <Trash2 className="mr-2 h-4 w-4" /> Apagar grupo para todos
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : remoteJid.endsWith("@s.whatsapp.net") && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button type="button" size="icon" variant="ghost" aria-label="Ações da conversa">

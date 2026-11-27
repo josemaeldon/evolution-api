@@ -81,4 +81,8 @@ export class GroupController {
   public async leaveGroup(instance: InstanceDto, groupJid: GroupJid) {
     return await this.waMonitor.waInstances[instance.instanceName].leaveGroup(groupJid);
   }
+
+  public async deleteGroup(instance: InstanceDto, groupJid: GroupJid) {
+    return await this.waMonitor.waInstances[instance.instanceName].deleteGroup(groupJid);
+  }
 }
