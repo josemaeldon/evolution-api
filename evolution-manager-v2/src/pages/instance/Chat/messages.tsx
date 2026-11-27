@@ -927,9 +927,31 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     }
   };
 
-  // Handle Enter key press
+  // Continue a list item on Enter; send messages outside lists.
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      const textarea = e.currentTarget;
+      const { selectionStart, selectionEnd, value } = textarea;
+      const lineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
+      const line = value.slice(lineStart, selectionStart);
+      const listMatch = line.match(/^([ \t]*)([-*]|\d+[.)])[ \t]+/);
+
+      if (listMatch) {
+        e.preventDefault();
+        const [, indentation, marker] = listMatch;
+        const nextMarker = /^\d/.test(marker) ? `${Number(marker.slice(0, -1)) + 1}${marker.slice(-1)}` : marker;
+        const insertion = `\n${indentation}${nextMarker} `;
+        const next = `${value.slice(0, selectionStart)}${insertion}${value.slice(selectionEnd)}`;
+        const nextCursor = selectionStart + insertion.length;
+        setMessageText(next);
+        updateTyping(next);
+        requestAnimationFrame(() => {
+          textarea.setSelectionRange(nextCursor, nextCursor);
+          handleTextareaChange();
+        });
+        return;
+      }
+
       e.preventDefault();
       sendMessage();
     }
