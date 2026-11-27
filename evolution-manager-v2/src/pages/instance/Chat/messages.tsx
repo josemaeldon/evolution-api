@@ -715,10 +715,10 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
   const groupParticipantNames = useMemo(() => {
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
     const names = new Map<string, string>();
-    groupParticipants.forEach((participant: { id?: string; phoneNumber?: string; name?: string }) => {
+    groupParticipants.forEach((participant: { id?: string; lid?: string; phoneNumber?: string; name?: string }) => {
       const name = participant.name?.trim();
-      if (!name) return;
-      [participant.id, participant.phoneNumber].filter((jid): jid is string => Boolean(jid)).forEach((jid) => {
+      if (!name || /^\+?\d[\d\s().:-]*$/.test(name)) return;
+      [participant.id, participant.lid, participant.phoneNumber].filter((jid): jid is string => Boolean(jid)).forEach((jid) => {
         const normalized = normalizeJid(jid);
         names.set(normalized, name);
         names.set(normalized.split("@")[0], name);
@@ -1547,7 +1547,9 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
       .filter((jid): jid is string => Boolean(jid))
       .map(normalizeJid);
     const senderContact = participantCandidates.map((jid) => contactsByCanonicalJid.get(jid)).find(Boolean);
-    const contactSenderName = senderContact?.customName?.trim() || senderContact?.pushName?.trim();
+    const contactSenderName = [senderContact?.customName, senderContact?.pushName]
+      .map((name) => name?.trim())
+      .find((name) => name && !/^\+?\d[\d\s().:-]*$/.test(name));
     const groupSenderName = participantCandidates
       .map((jid) => groupParticipantNames.get(jid) || groupParticipantNames.get(jid.split("@")[0]))
       .find(Boolean);

@@ -921,7 +921,7 @@ export class BaileysStartupService extends ChannelStartupService {
       try {
         const contactsRaw: any = contacts.map((contact) => ({
           remoteJid: contact.id,
-          pushName: contact?.name || contact?.verifiedName || contact.id.split('@')[0],
+          pushName: contact?.name || contact?.notify || contact?.verifiedName || contact.id.split('@')[0],
           profilePicUrl: null,
           instanceId: this.instanceId,
         }));
@@ -957,7 +957,7 @@ export class BaileysStartupService extends ChannelStartupService {
         const updatedContacts = await Promise.all(
           contacts.map(async (contact) => ({
             remoteJid: contact.id,
-            pushName: contact?.name || contact?.verifiedName || contact.id.split('@')[0],
+            pushName: contact?.name || contact?.notify || contact?.verifiedName || contact.id.split('@')[0],
             profilePicUrl: (await this.profilePicture(contact.id)).profilePictureUrl,
             instanceId: this.instanceId,
           })),
@@ -975,7 +975,10 @@ export class BaileysStartupService extends ChannelStartupService {
               if (this.configService.get<Database>('DATABASE').SAVE_DATA.CONTACTS) {
                 await this.prismaRepository.contact.updateMany({
                   where: { remoteJid: contact.remoteJid, instanceId: this.instanceId },
-                  data: { profilePicUrl: contact.profilePicUrl },
+                  data: {
+                    profilePicUrl: contact.profilePicUrl,
+                    ...(!/^\+?\d[\d\s().:-]*$/.test(contact.pushName) ? { pushName: contact.pushName } : {}),
+                  },
                 });
               }
 
@@ -1011,7 +1014,7 @@ export class BaileysStartupService extends ChannelStartupService {
         this.logger.debug(`Updating contact: ${JSON.stringify(contact, null, 2)}`);
         contactsRaw.push({
           remoteJid: contact.id,
-          pushName: contact?.name ?? contact?.verifiedName,
+          pushName: contact?.name ?? contact?.notify ?? contact?.verifiedName,
           profilePicUrl: (await this.profilePicture(contact.id)).profilePictureUrl,
           instanceId: this.instanceId,
         });
@@ -4981,10 +4984,24 @@ export class BaileysStartupService extends ChannelStartupService {
     try {
       const participants = (await this.client.groupMetadata(id.groupJid)).participants;
       const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, '');
+      const asPhoneJid = (jid?: string) => {
+        if (!jid) return undefined;
+        const normalized = normalizeJid(jid);
+        return normalized.includes('@') ? normalized : `${normalized}@s.whatsapp.net`;
+      };
+      const meaningfulName = (name?: string) => {
+        const value = name?.trim();
+        return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
+      };
       const participantPhoneJids = new Map<string, string>();
       await Promise.all(
         participants.map(async (participant) => {
           const normalizedId = normalizeJid(participant.id);
+          const providedPhoneJid = asPhoneJid(participant.phoneNumber);
+          if (providedPhoneJid?.endsWith('@s.whatsapp.net')) {
+            participantPhoneJids.set(participant.id, providedPhoneJid);
+            return;
+          }
           if (!normalizedId.endsWith('@lid')) return;
           try {
             const phoneJid = await this.client.signalRepository.lidMapping.getPNForLID(normalizedId);
@@ -4998,6 +5015,8 @@ export class BaileysStartupService extends ChannelStartupService {
         .flatMap((participant) => [
           participant.id,
           normalizeJid(participant.id),
+          participant.lid,
+          participant.lid ? normalizeJid(participant.lid) : undefined,
           participantPhoneJids.get(participant.id),
         ])
         .filter((jid): jid is string => Boolean(jid));
@@ -5010,10 +5029,16 @@ export class BaileysStartupService extends ChannelStartupService {
         const contact =
           contactsByJid.get(participant.id) ||
           contactsByJid.get(normalizeJid(participant.id)) ||
+          (participant.lid ? contactsByJid.get(normalizeJid(participant.lid)) : undefined) ||
           (phoneJid ? contactsByJid.get(phoneJid) : undefined);
         return {
           ...participant,
-          name: contact?.customName?.trim() || contact?.pushName?.trim() || participant.name,
+          name:
+            meaningfulName(contact?.customName) ||
+            meaningfulName(contact?.pushName) ||
+            meaningfulName(participant.name) ||
+            meaningfulName(participant.notify) ||
+            meaningfulName(participant.verifiedName),
           phoneNumber: phoneJid ? phoneJid.split('@')[0] : participant.phoneNumber,
           imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
         };
@@ -5062,9 +5087,13 @@ export class BaileysStartupService extends ChannelStartupService {
         where: { instanceId: this.instanceId, remoteJid: { in: lookupJids } },
         select: { remoteJid: true, customName: true, pushName: true },
       });
-      const contactName = contacts
-        .map((contact) => contact.customName?.trim() || contact.pushName?.trim())
-        .find((name) => name && !/^\+?\d[\d\s().-]*$/.test(name));
+      const meaningfulName = (name?: string | null) => {
+        const value = name?.trim();
+        return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
+      };
+      const contactName =
+        contacts.map((contact) => meaningfulName(contact.customName)).find(Boolean) ||
+        contacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean);
       if (contactName) return contactName;
     } catch (error) {
       this.logger.warn(`Unable to resolve group message sender contact: ${error}`);
@@ -5074,20 +5103,37 @@ export class BaileysStartupService extends ChannelStartupService {
       const bareJid = normalizeJid(jid).split('@')[0];
       return fallbackName === jid || fallbackName === jid.split('@')[0] || fallbackName === bareJid;
     });
-    if (fallbackName && !numericFallback) return fallbackName;
+    if (fallbackName && !numericFallback && !/^\+?\d[\d\s().:-]*$/.test(fallbackName)) return fallbackName;
 
     try {
       const groupJid = key.remoteJid!;
       const metadata = await this.getGroupMetadataCache(groupJid);
       const participant = metadata?.participants?.find((item) => {
-        const participantIds = [item.id, (item as any).phoneNumber].filter(Boolean).map(normalizeJid);
+        const participantIds = [item.id, item.lid, item.phoneNumber].filter(Boolean).map(normalizeJid);
         return candidates.some((candidate) => {
           const normalized = mappedJids.get(candidate) || normalizeJid(candidate);
           return participantIds.includes(normalized) || participantIds.includes(normalizeJid(candidate));
         });
       });
-      const metadataName = participant?.name?.trim();
-      if (metadataName && !/^\+?\d[\d\s().-]*$/.test(metadataName)) return metadataName;
+      const phoneJid = participant?.phoneNumber;
+      if (phoneJid) {
+        const normalizedPhoneJid = normalizeJid(phoneJid);
+        const contact = await this.prismaRepository.contact.findFirst({
+          where: {
+            instanceId: this.instanceId,
+            remoteJid: normalizedPhoneJid.includes('@') ? normalizedPhoneJid : `${normalizedPhoneJid}@s.whatsapp.net`,
+          },
+          select: { customName: true, pushName: true },
+        });
+        const contactName = [contact?.customName, contact?.pushName]
+          .map((name) => name?.trim())
+          .find((name) => name && !/^\+?\d[\d\s().:-]*$/.test(name));
+        if (contactName) return contactName;
+      }
+      const metadataName = [participant?.name, participant?.notify, participant?.verifiedName]
+        .map((name) => name?.trim())
+        .find((name) => name && !/^\+?\d[\d\s().:-]*$/.test(name));
+      if (metadataName) return metadataName;
     } catch (error) {
       this.logger.warn(`Unable to resolve group message sender metadata: ${error}`);
     }
@@ -5681,13 +5727,20 @@ export class BaileysStartupService extends ChannelStartupService {
         const contact = [...participantCandidates.map(normalizeParticipantJid), ...resolvedCandidates]
           .map((jid) => contactsByJid.get(jid))
           .find(Boolean);
-        const contactName = contact?.customName?.trim() || contact?.pushName?.trim();
+        const meaningfulName = (name?: string | null) => {
+          const value = name?.trim();
+          return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
+        };
+        const contactName = meaningfulName(contact?.customName) || meaningfulName(contact?.pushName);
+        const messageName = meaningfulName(message.pushName);
         const participantJid = participantCandidates[0];
         const resolvedParticipantJid = participantJid ? participantJidMappings.get(participantJid) : undefined;
         const participantDisplay = participantJid ? normalizeParticipantJid(participantJid).split('@')[0] : undefined;
 
         if (contactName) {
           message.pushName = contactName;
+        } else if (messageName) {
+          message.pushName = messageName;
         } else if (resolvedParticipantJid) {
           message.pushName = resolvedParticipantJid.split('@')[0];
         } else if (!message.pushName && participantJid) {
