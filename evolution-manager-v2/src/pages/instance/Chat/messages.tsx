@@ -1571,19 +1571,21 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     const participantCandidates = [participant, (message.key as typeof message.key & { participantAlt?: string }).participantAlt]
       .filter((jid): jid is string => Boolean(jid))
       .map(normalizeJid);
-    const senderContact = participantCandidates.map((jid) => contactsByCanonicalJid.get(jid)).find(Boolean);
-    const contactSenderName = [senderContact?.customName, senderContact?.pushName]
-      .map((name) => name?.trim())
-      .find((name) => name && !/^\+?\d[\d\s().:-]*$/.test(name));
+    const senderContacts = participantCandidates.map((jid) => contactsByCanonicalJid.get(jid));
+    const meaningfulName = (name?: string) => {
+      const value = name?.trim();
+      return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
+    };
+    const customSenderName = senderContacts.map((contact) => meaningfulName(contact?.customName)).find(Boolean);
+    const contactSenderName = senderContacts.map((contact) => meaningfulName(contact?.pushName)).find(Boolean);
     const groupSenderName = participantCandidates
       .map((jid) => groupParticipantIdentity.names.get(jid) || groupParticipantIdentity.names.get(jid.split("@")[0]))
       .find(Boolean);
     const groupSenderPhone = participantCandidates
       .map((jid) => groupParticipantIdentity.phones.get(jid) || groupParticipantIdentity.phones.get(jid.split("@")[0]))
       .find(Boolean);
-    const messageSenderName = message.pushName?.trim();
-    const hasNumericSenderName = Boolean(messageSenderName && /^\+?\d[\d:]*$/.test(messageSenderName));
-    const senderName = contactSenderName || groupSenderName || (!hasNumericSenderName ? messageSenderName : "") || groupSenderPhone || (participant ? normalizeJid(participant).split("@")[0] : "");
+    const messageSenderName = meaningfulName(message.pushName);
+    const senderName = customSenderName || messageSenderName || contactSenderName || groupSenderName || groupSenderPhone || (participant ? normalizeJid(participant).split("@")[0] : "");
 
     return (
       <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-start">

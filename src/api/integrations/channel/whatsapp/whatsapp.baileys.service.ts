@@ -5802,19 +5802,16 @@ export class BaileysStartupService extends ChannelStartupService {
         const historyName = participantCandidates
           .map((jid) => senderNamesFromHistory.get(normalizeParticipantJid(jid)))
           .find(Boolean);
-        const contactName =
-          matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean) ||
-          matchingContacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean) ||
-          historyName;
+        const customName = matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean);
+        const contactName = matchingContacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean);
         const messageName = meaningfulName(message.pushName);
         const participantJid = participantCandidates[0];
         const resolvedParticipantJid = participantJid ? participantJidMappings.get(participantJid) : undefined;
         const participantDisplay = participantJid ? normalizeParticipantJid(participantJid).split('@')[0] : undefined;
 
-        if (contactName) {
-          message.pushName = contactName;
-        } else if (messageName) {
-          message.pushName = messageName;
+        const senderName = customName || messageName || contactName || historyName;
+        if (senderName) {
+          message.pushName = senderName;
         } else if (resolvedParticipantJid) {
           message.pushName = resolvedParticipantJid.split('@')[0];
         } else if (!message.pushName && participantJid) {
