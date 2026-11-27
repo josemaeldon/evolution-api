@@ -195,7 +195,14 @@ function Header({ instanceId }: { instanceId?: string }) {
         </DialogContent>
       </Dialog>
       <Dialog open={birthdaySearchOpen} onOpenChange={setBirthdaySearchOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onInteractOutside={(event) => {
+            const target = event.target;
+            if (target instanceof Element && target.closest('[role="dialog"][aria-label="Selecionar data"]')) {
+              event.preventDefault();
+            }
+          }}>
           <DialogHeader>
             <DialogTitle>Consultar aniversariantes</DialogTitle>
             <DialogDescription>Escolha uma data para verificar quais contatos fazem aniversário.</DialogDescription>
