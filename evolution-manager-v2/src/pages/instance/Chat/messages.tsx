@@ -41,7 +41,7 @@ import { SelectedMedia } from "../EmbedChatMessage/InputMessage/selected-media";
 import { useChatPresence } from "./use-chat-presence";
 
 type MessagesProps = {
-  contacts?: { remoteJid: string; pushName?: string; profilePicUrl?: string }[];
+  contacts?: { remoteJid: string; pushName?: string; customName?: string; profilePicUrl?: string }[];
   contactVariables?: { name: string; phone: string; birthDate: string; anniversary: string; age: string; labels: string };
   headerNameOverride?: string;
   headerActions?: ReactNode;
@@ -697,6 +697,10 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
   const locale = i18n.language;
   const { instance } = useInstance();
   const { data: managerAccount } = useManagerAccount();
+  const contactsByCanonicalJid = useMemo(() => {
+    const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
+    return new Map(contacts.map((contact) => [normalizeJid(contact.remoteJid), contact]));
+  }, [contacts]);
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const sendLockRef = useRef(false);
@@ -1514,7 +1518,15 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     const isGroup = !!remoteJid?.endsWith("@g.us");
     const participant = message.key.participant;
     const senderKey = participant || message.pushName || "";
-    const senderName = message.pushName || (participant ? participant.split("@")[0] : "");
+    const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
+    const participantCandidates = [participant, (message.key as typeof message.key & { participantAlt?: string }).participantAlt]
+      .filter((jid): jid is string => Boolean(jid))
+      .map(normalizeJid);
+    const senderContact = participantCandidates.map((jid) => contactsByCanonicalJid.get(jid)).find(Boolean);
+    const contactSenderName = senderContact?.customName?.trim() || senderContact?.pushName?.trim();
+    const messageSenderName = message.pushName?.trim();
+    const hasNumericSenderName = Boolean(messageSenderName && /^\+?\d[\d:]*$/.test(messageSenderName));
+    const senderName = contactSenderName || (!hasNumericSenderName ? messageSenderName : "") || (participant ? normalizeJid(participant).split("@")[0] : "");
 
     return (
       <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-start">

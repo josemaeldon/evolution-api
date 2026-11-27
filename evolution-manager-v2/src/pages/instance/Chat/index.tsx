@@ -513,7 +513,7 @@ function Chat() {
             )}
             <Messages
               key={remoteJid}
-              contacts={contactList}
+              contacts={organization?.contacts || contactList}
               contactVariables={{
                 name: activeContactName,
                 phone: remoteJid.split("@")[0],
