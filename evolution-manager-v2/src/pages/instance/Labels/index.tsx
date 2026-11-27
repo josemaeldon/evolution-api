@@ -214,6 +214,10 @@ export default function ContactLabels() {
                       />
                     </td>
                     <td className="p-2">
+                      <div className="font-medium">{contactName(contact)}</div>
+                      <div className="text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</div>
+                    </td>
+                    <td className="p-2">
                       <Input
                         type="date"
                         aria-label={`Data de nascimento de ${contactName(contact)}`}
@@ -221,10 +225,6 @@ export default function ContactLabels() {
                         onChange={(event) => updateContact(contact, { birthDate: event.target.value || null })}
                         className="w-40"
                       />
-                    </td>
-                    <td className="p-2">
-                      <div className="font-medium">{contactName(contact)}</div>
-                      <div className="text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</div>
                     </td>
                     <td className="p-2">
                       <div className="flex flex-wrap gap-2">
