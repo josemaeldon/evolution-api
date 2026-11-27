@@ -2,10 +2,11 @@ import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { File, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
-import { saasApi } from "@/lib/queries/saas";
+import { saasApi, useManagerAccount } from "@/lib/queries/saas";
 
 type ManagedMedia = {
   id: string;
@@ -43,6 +44,9 @@ const formatSize = (bytes: number) => {
 };
 
 export default function FilesAndMedia() {
+  const { instanceId = "" } = useParams();
+  const { data: account, isPending: accountPending } = useManagerAccount();
+  const isSuperadmin = account?.role === "superadmin";
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -51,17 +55,19 @@ export default function FilesAndMedia() {
   const [busy, setBusy] = useState(false);
 
   const { data: storage } = useQuery<StorageInfo>({
-    queryKey: ["saas", "storage"],
-    queryFn: async () => (await saasApi.get("/saas/storage")).data,
+    queryKey: ["saas", "storage", isSuperadmin ? instanceId : "company"],
+    queryFn: async () => (await saasApi.get("/saas/storage", { params: isSuperadmin ? { instanceId } : undefined })).data,
+    enabled: !accountPending && (!isSuperadmin || !!instanceId),
   });
   const { data, isPending, isError } = useQuery<MediaPage>({
-    queryKey: ["saas", "media", page, search, type],
+    queryKey: ["saas", "media", isSuperadmin ? instanceId : "company", page, search, type],
     queryFn: async () =>
       (
         await saasApi.get("/saas/media", {
-          params: { page, pageSize: 50, search: search || undefined, type: type || undefined },
+          params: { page, pageSize: 50, search: search || undefined, type: type || undefined, ...(isSuperadmin ? { instanceId } : {}) },
         })
       ).data,
+    enabled: !accountPending && (!isSuperadmin || !!instanceId),
   });
 
   const items = data?.items ?? [];
@@ -94,7 +100,9 @@ export default function FilesAndMedia() {
     try {
       let deleted = 0;
       for (let index = 0; index < selectedIds.length; index += 500) {
-        const result = await saasApi.delete("/saas/media", { data: { ids: selectedIds.slice(index, index + 500) } });
+        const result = await saasApi.delete("/saas/media", {
+          data: { ids: selectedIds.slice(index, index + 500), ...(isSuperadmin ? { instanceId } : {}) },
+        });
         deleted += result.data.deleted;
       }
       setSelectedIds([]);
@@ -111,7 +119,9 @@ export default function FilesAndMedia() {
 
   const openMedia = async (mediaId: string) => {
     try {
-      const { data: result } = await saasApi.get(`/saas/media/${mediaId}/url`);
+      const { data: result } = await saasApi.get(`/saas/media/${mediaId}/url`, {
+        params: isSuperadmin ? { instanceId } : undefined,
+      });
       window.open(result.url, "_blank", "noopener,noreferrer");
     } catch {
       toast.error("Não foi possível abrir este arquivo.");
@@ -122,7 +132,7 @@ export default function FilesAndMedia() {
     <div className="mx-auto max-w-6xl space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-bold">Arquivos e Mídias</h1>
-        <p className="text-sm text-muted-foreground">Gerencie os arquivos recebidos nas conversas de todas as instâncias da empresa.</p>
+        <p className="text-sm text-muted-foreground">{isSuperadmin ? "Visualize os arquivos e mídias desta instância." : "Gerencie os arquivos recebidos nas conversas de todas as instâncias da empresa."}</p>
       </header>
 
       <section className="space-y-3 rounded-lg border p-4" aria-label="Cota de armazenamento">

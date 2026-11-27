@@ -354,6 +354,28 @@ router.delete('/companies/:companyId', async (req, res) => {
 
 router.get('/storage', async (req, res) => {
   const principal = getManagerPrincipal(req);
+  const instanceId = String(req.query.instanceId || '').trim();
+  if (principal.role === 'superadmin') {
+    if (!instanceId) return res.status(400).json(fail('Informe a instância'));
+    const instance = await prismaRepository.instance.findUnique({
+      where: { id: instanceId },
+      select: {
+        id: true,
+        companyId: true,
+        Company: { select: { storageQuotaMb: true, storageBackend: true, storageBucket: true } },
+      },
+    });
+    if (!instance) return res.status(404).json(fail('Instância não encontrada'));
+    const usage = await getCompanyStorageUsage(prismaRepository, instance.companyId, instance.id);
+    return res.json({
+      ...usage,
+      storageQuotaMb: instance.Company?.storageQuotaMb ?? 0,
+      storageEnabled: true,
+      storageBackend: resolveCompanyStorageTarget(instance.Company).backend,
+      storageBucket: resolveCompanyStorageTarget(instance.Company).bucket,
+    });
+  }
+
   const companyId = principal.companyId;
   if (principal.role !== 'admin' || !companyId)
     return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
@@ -379,16 +401,25 @@ router.get('/storage', async (req, res) => {
 router.get('/media', async (req, res) => {
   const principal = getManagerPrincipal(req);
   const companyId = principal.companyId;
-  if (principal.role !== 'admin' || !companyId)
+  const instanceId = String(req.query.instanceId || '').trim();
+  if (principal.role === 'superadmin' && !instanceId) return res.status(400).json(fail('Informe a instância'));
+  if (principal.role !== 'superadmin' && (principal.role !== 'admin' || !companyId))
     return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
 
   const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
   const pageSize = Math.min(100, Math.max(1, Number.parseInt(String(req.query.pageSize || '50'), 10) || 50));
   const search = String(req.query.search || '').trim();
   const type = String(req.query.type || '').trim();
-  const instanceId = String(req.query.instanceId || '').trim();
+  const scopedInstance =
+    principal.role === 'superadmin'
+      ? await prismaRepository.instance.findUnique({ where: { id: instanceId }, select: { id: true, companyId: true } })
+      : null;
+  if (principal.role === 'superadmin' && !scopedInstance) return res.status(404).json(fail('Instância não encontrada'));
   const where: Prisma.MediaWhereInput = {
-    Instance: { is: { companyId, ...(instanceId ? { id: instanceId } : {}) } },
+    Instance: {
+      is:
+        principal.role === 'superadmin' ? { id: instanceId } : { companyId, ...(instanceId ? { id: instanceId } : {}) },
+    },
     ...(type ? mediaTypeFilters.get(type) || { type } : {}),
     ...(search
       ? {
@@ -417,7 +448,9 @@ router.get('/media', async (req, res) => {
       take: pageSize,
     }),
     prismaRepository.media.count({ where }),
-    getCompanyStorageUsage(prismaRepository, companyId),
+    principal.role === 'superadmin'
+      ? getCompanyStorageUsage(prismaRepository, scopedInstance!.companyId, instanceId)
+      : getCompanyStorageUsage(prismaRepository, companyId!),
   ]);
 
   return res.json({ items, total, page, pageSize, ...usage });
@@ -426,32 +459,56 @@ router.get('/media', async (req, res) => {
 router.get('/media/:mediaId/url', async (req, res) => {
   const principal = getManagerPrincipal(req);
   const companyId = principal.companyId;
-  if (principal.role !== 'admin' || !companyId)
+  const instanceId = String(req.query.instanceId || '').trim();
+  if (principal.role === 'superadmin' && !instanceId) return res.status(400).json(fail('Informe a instância'));
+  if (principal.role !== 'superadmin' && (principal.role !== 'admin' || !companyId))
     return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
   const media = await prismaRepository.media.findFirst({
-    where: { id: req.params.mediaId, Instance: { is: { companyId } } },
-    select: { fileName: true, storageBackend: true, storageBucket: true },
+    where: {
+      id: req.params.mediaId,
+      Instance: { is: principal.role === 'superadmin' ? { id: instanceId } : { companyId } },
+    },
+    select: { fileName: true, storageBackend: true, storageBucket: true, Instance: { select: { companyId: true } } },
   });
   if (!media) return res.status(404).json(fail('Arquivo não encontrado'));
-  const companyTarget = await getCompanyStorageTargetById(prismaRepository, companyId);
+  const mediaCompanyId = media.Instance.companyId;
+  const companyTarget = mediaCompanyId
+    ? await getCompanyStorageTargetById(prismaRepository, mediaCompanyId)
+    : resolveCompanyStorageTarget(null);
   return res.json({ url: await getObjectUrl(media.fileName, undefined, getMediaStorageTarget(media, companyTarget)) });
 });
 
 router.delete('/media', async (req, res) => {
   const principal = getManagerPrincipal(req);
   const companyId = principal.companyId;
-  if (principal.role !== 'admin' || !companyId)
+  const instanceId = String(req.body?.instanceId || '').trim();
+  if (principal.role === 'superadmin' && !instanceId) return res.status(400).json(fail('Informe a instância'));
+  if (principal.role !== 'superadmin' && (principal.role !== 'admin' || !companyId))
     return res.status(403).json(fail('Acesso restrito ao administrador da empresa'));
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > 500 || ids.some((id) => typeof id !== 'string')) {
     return res.status(400).json(fail('Selecione de 1 a 500 arquivos para excluir'));
   }
 
+  const targetInstance =
+    principal.role === 'superadmin'
+      ? await prismaRepository.instance.findUnique({ where: { id: instanceId }, select: { id: true, companyId: true } })
+      : null;
+  if (principal.role === 'superadmin' && !targetInstance) return res.status(404).json(fail('Instância não encontrada'));
+
   const files = await prismaRepository.media.findMany({
-    where: { id: { in: ids }, Instance: { is: { companyId } } },
+    where: {
+      id: { in: ids },
+      Instance: { is: principal.role === 'superadmin' ? { id: instanceId } : { companyId } },
+    },
     include: { Message: { select: { message: true } } },
   });
-  const companyTarget = await getCompanyStorageTargetById(prismaRepository, companyId);
+  const companyTarget =
+    principal.role === 'superadmin'
+      ? targetInstance!.companyId
+        ? await getCompanyStorageTargetById(prismaRepository, targetInstance!.companyId)
+        : resolveCompanyStorageTarget(null)
+      : await getCompanyStorageTargetById(prismaRepository, companyId!);
   let deleted = 0;
   for (const file of files) {
     const result = await deleteFile('evolution-api', file.fileName, getMediaStorageTarget(file, companyTarget));

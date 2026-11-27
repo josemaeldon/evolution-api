@@ -41,7 +41,7 @@ export const getMediaStorageTarget = (
 
 export const pinLegacyMediaStorageTarget = async (
   prismaRepository: PrismaRepository,
-  companyId: string,
+  companyId: string | null,
   target: StorageTarget,
 ) => {
   await prismaRepository.media.updateMany({
@@ -56,16 +56,26 @@ export const pinLegacyMediaStorageTarget = async (
   }
 };
 
-const backfillMissingMediaSizes = async (prismaRepository: PrismaRepository, companyId: string) => {
-  if (usageBackfills.has(companyId)) return usageBackfills.get(companyId);
+const backfillMissingMediaSizes = async (
+  prismaRepository: PrismaRepository,
+  companyId: string,
+  instanceId?: string,
+) => {
+  const backfillKey = instanceId ? `${companyId}:${instanceId}` : companyId;
+  if (usageBackfills.has(backfillKey)) return usageBackfills.get(backfillKey);
 
   const backfill = (async () => {
-    const fallbackTarget = await getCompanyStorageTargetById(prismaRepository, companyId);
+    const fallbackTarget = companyId
+      ? await getCompanyStorageTargetById(prismaRepository, companyId)
+      : resolveCompanyStorageTarget(null);
     let cursor: string | undefined;
     let hasMore = true;
     while (hasMore) {
       const files = await prismaRepository.media.findMany({
-        where: { sizeBytes: 0, Instance: { is: { companyId } } },
+        where: {
+          sizeBytes: 0,
+          Instance: { is: { ...(companyId ? { companyId } : {}), ...(instanceId ? { id: instanceId } : {}) } },
+        },
         select: { id: true, fileName: true, storageBackend: true, storageBucket: true },
         orderBy: { id: 'asc' },
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -95,19 +105,25 @@ const backfillMissingMediaSizes = async (prismaRepository: PrismaRepository, com
     }
   })();
 
-  usageBackfills.set(companyId, backfill);
+  usageBackfills.set(backfillKey, backfill);
   try {
     await backfill;
   } catch (error) {
-    usageBackfills.delete(companyId);
+    usageBackfills.delete(backfillKey);
     throw error;
   }
 };
 
-export const getCompanyStorageUsage = async (prismaRepository: PrismaRepository, companyId: string) => {
-  await backfillMissingMediaSizes(prismaRepository, companyId);
+export const getCompanyStorageUsage = async (
+  prismaRepository: PrismaRepository,
+  companyId: string | null,
+  instanceId?: string,
+) => {
+  await backfillMissingMediaSizes(prismaRepository, companyId, instanceId);
   const usage = await prismaRepository.media.aggregate({
-    where: { Instance: { is: { companyId } } },
+    where: {
+      Instance: { is: { ...(companyId ? { companyId } : {}), ...(instanceId ? { id: instanceId } : {}) } },
+    },
     _sum: { sizeBytes: true },
     _count: { _all: true },
   });

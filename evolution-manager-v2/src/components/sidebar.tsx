@@ -187,7 +187,7 @@ function InstanceSidebar() {
     () =>
       menus
         .filter((menu) => {
-          if ("id" in menu && menu.id === "files") return account?.role === "admin";
+          if ("id" in menu && menu.id === "files") return account?.role === "admin" || account?.role === "superadmin";
           return account?.role !== "user" || ("id" in menu && ["chat", "forms", "labels", "bulkMessaging"].includes(menu.id));
         })
         .map((menu) => {

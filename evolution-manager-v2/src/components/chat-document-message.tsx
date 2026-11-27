@@ -1,5 +1,5 @@
 import { Download, Eye, FileText } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@evoapi/design-system/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,6 +40,13 @@ export function ChatDocumentMessage({ message, instanceName, token }: { message:
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [previewError, setPreviewError] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const messageRef = useRef(message);
+  const sourceRef = useRef(source);
+
+  useEffect(() => {
+    messageRef.current = message;
+    sourceRef.current = source;
+  }, [message, source]);
 
   useEffect(() => {
     if (!open || !isPdf) return;
@@ -47,7 +54,7 @@ export function ChatDocumentMessage({ message, instanceName, token }: { message:
     let objectUrl: string | undefined;
     setPreviewUrl(undefined);
     setPreviewError("");
-    pdfBlob(source, message, instanceName, token)
+    pdfBlob(sourceRef.current, messageRef.current, instanceName, token)
       .then((blob) => {
         if (!active) return;
         objectUrl = URL.createObjectURL(blob);
@@ -60,7 +67,7 @@ export function ChatDocumentMessage({ message, instanceName, token }: { message:
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [open, isPdf, source, message, instanceName, token]);
+  }, [open, isPdf, message.key?.id, instanceName, token]);
 
   const downloadPdf = async () => {
     setDownloading(true);
