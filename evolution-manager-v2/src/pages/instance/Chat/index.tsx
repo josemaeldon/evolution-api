@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { ArrowLeft, ContactRound, ListFilter, MessageCircle, MoreVertical, Plus, Search, Trash2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,6 +29,11 @@ import { useMediaQuery } from "@/utils/useMediaQuery";
 import { Messages } from "./messages";
 
 const formatJid = (remoteJid: string): string => remoteJid.split("@")[0];
+const toPickerDate = (date: string) => (date ? `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}` : "");
+const fromPickerDate = (date: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(date);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+};
 
 type ChatKind = "contacts" | "groups";
 type ContactFormMode = "contact" | "conversation" | "edit" | null;
@@ -694,7 +700,7 @@ function Chat() {
             {contactFormMode !== "conversation" && (
               <div className="space-y-1">
                 <label htmlFor="contact-birth-date" className="text-sm font-medium">Data de nascimento (opcional)</label>
-                <Input id="contact-birth-date" type="date" value={contactBirthDate} disabled={savingContact} onChange={(event) => setContactBirthDate(event.target.value)} />
+                <DatePicker id="contact-birth-date" value={toPickerDate(contactBirthDate)} disabled={savingContact} onChange={(value) => setContactBirthDate(fromPickerDate(value))} />
               </div>
             )}
           </div>

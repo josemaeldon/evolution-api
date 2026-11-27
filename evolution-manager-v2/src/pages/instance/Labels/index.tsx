@@ -1,10 +1,11 @@
 import { Button } from "@evoapi/design-system/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Tag, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Tag, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { saasApi } from "@/lib/queries/saas";
 import { useInstance } from "@/contexts/InstanceContext";
 
@@ -13,6 +14,11 @@ type Contact = { id: string; remoteJid: string; pushName?: string; customName?: 
 type Organization = { labels: Label[]; contacts: Contact[] };
 
 const BIRTHDAY_LABEL_ID = "__birthdays_today__";
+const toPickerDate = (date: string) => (date ? `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}` : "");
+const fromPickerDate = (date: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(date);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+};
 const getLocalDate = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -24,6 +30,7 @@ export default function ContactLabels() {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#2563eb");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedLabelId, setSelectedLabelId] = useState("");
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [assigning, setAssigning] = useState(false);
@@ -38,7 +45,11 @@ export default function ContactLabels() {
   const labels = data?.labels || [];
   const contactName = (contact: Contact) => contact.customName?.trim() || contact.pushName?.trim() || contact.remoteJid.split("@")[0];
   const contacts = (data?.contacts || []).filter((contact) => `${contactName(contact)} ${contact.pushName || ""} ${contact.remoteJid}`.toLowerCase().includes(search.toLowerCase()));
-  const allVisibleSelected = contacts.length > 0 && contacts.every((contact) => selectedContactIds.includes(contact.id));
+  const pageSize = 50;
+  const pageCount = Math.max(1, Math.ceil(contacts.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageContacts = contacts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const allVisibleSelected = pageContacts.length > 0 && pageContacts.every((contact) => selectedContactIds.includes(contact.id));
 
   const refresh = () => queryClient.invalidateQueries({ queryKey });
   const createLabel = async () => {
@@ -77,15 +88,15 @@ export default function ContactLabels() {
     }
   };
   const updateAllConsent = async (marketingOptIn: boolean) => {
-    if (!instance || !contacts.length) return;
+    if (!instance || !pageContacts.length) return;
     setUpdatingConsent(true);
     try {
       await saasApi.put(`/saas/instance/${instance.id}/contacts/marketing-opt-in`, {
-        contactIds: contacts.map((contact) => contact.id),
+        contactIds: pageContacts.map((contact) => contact.id),
         marketingOptIn,
       });
       await refresh();
-      toast.success(marketingOptIn ? "Todos os contatos visíveis foram autorizados" : "Autorização removida dos contatos visíveis");
+      toast.success(marketingOptIn ? "Todos os contatos desta página foram autorizados" : "Autorização removida dos contatos desta página");
     } catch (error: any) {
       toast.error(error?.response?.data?.error || "Não foi possível atualizar as autorizações");
     } finally {
@@ -148,7 +159,7 @@ export default function ContactLabels() {
             <h2 className="font-semibold">Contatos</h2>
             <p className="text-xs text-muted-foreground">A autorização precisa ser confirmada antes de incluir o contato em uma campanha.</p>
           </div>
-          <Input aria-label="Buscar contatos" placeholder="Buscar por nome ou número" value={search} onChange={(event) => setSearch(event.target.value)} className="max-w-sm" />
+          <Input aria-label="Buscar contatos" placeholder="Buscar por nome ou número" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} className="max-w-sm" />
         </div>
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-muted/50 p-3">
           <span className="text-sm font-medium">Atribuir etiqueta aos contatos selecionados</span>
@@ -175,11 +186,11 @@ export default function ContactLabels() {
                   <th className="p-2">
                     <input
                       type="checkbox"
-                      aria-label="Selecionar todos os contatos visíveis"
+                      aria-label="Selecionar todos os contatos desta página"
                       checked={allVisibleSelected}
                       onChange={(event) => setSelectedContactIds((current) => event.target.checked
-                        ? [...new Set([...current, ...contacts.map((contact) => contact.id)])]
-                        : current.filter((id) => !contacts.some((contact) => contact.id === id)))}
+                        ? [...new Set([...current, ...pageContacts.map((contact) => contact.id)])]
+                        : current.filter((id) => !pageContacts.some((contact) => contact.id === id)))}
                     />
                   </th>
                   <th className="p-2">Contato</th>
@@ -189,10 +200,10 @@ export default function ContactLabels() {
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
-                        aria-label="Marcar todos os contatos visíveis para campanhas"
-                        title="Marcar ou desmarcar todos os contatos visíveis"
-                        checked={contacts.length > 0 && contacts.every((contact) => contact.marketingOptIn)}
-                        disabled={!contacts.length || updatingConsent}
+                        aria-label="Marcar todos os contatos desta página para campanhas"
+                        title="Marcar ou desmarcar os contatos desta página"
+                        checked={pageContacts.length > 0 && pageContacts.every((contact) => contact.marketingOptIn)}
+                        disabled={!pageContacts.length || updatingConsent}
                         onChange={(event) => updateAllConsent(event.target.checked)}
                       />
                       <span>Autorização para campanhas</span>
@@ -201,7 +212,7 @@ export default function ContactLabels() {
                 </tr>
               </thead>
               <tbody>
-                {contacts.map((contact) => (
+                {pageContacts.map((contact) => (
                   <tr key={contact.id} className="border-b last:border-0">
                     <td className="p-2">
                       <input
@@ -218,13 +229,13 @@ export default function ContactLabels() {
                       <div className="text-xs text-muted-foreground">{contact.remoteJid.split("@")[0]}</div>
                     </td>
                     <td className="p-2">
-                      <Input
-                        type="date"
-                        aria-label={`Data de nascimento de ${contactName(contact)}`}
-                        value={contact.birthDate?.slice(0, 10) || ""}
-                        onChange={(event) => updateContact(contact, { birthDate: event.target.value || null })}
-                        className="w-40"
-                      />
+                      <div className="w-44">
+                        <DatePicker
+                          id={`birth-date-${contact.id}`}
+                          value={toPickerDate(contact.birthDate?.slice(0, 10) || "")}
+                          onChange={(value) => updateContact(contact, { birthDate: fromPickerDate(value) || null })}
+                        />
+                      </div>
                     </td>
                     <td className="p-2">
                       <div className="flex flex-wrap gap-2">
@@ -263,6 +274,22 @@ export default function ContactLabels() {
             </table>
             {!contacts.length && <p className="py-8 text-center text-sm text-muted-foreground">Nenhum contato encontrado.</p>}
           </div>
+        )}
+        {!isLoading && contacts.length > pageSize && (
+          <nav aria-label="Paginação dos contatos" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+            <p className="text-sm text-muted-foreground">
+              Mostrando {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, contacts.length)} de {contacts.length} contatos
+            </p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={currentPage === 1}>
+                <ChevronLeft className="mr-1 h-4 w-4" /> Anterior
+              </Button>
+              <span className="min-w-20 text-center text-sm">Página {currentPage} de {pageCount}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={currentPage >= pageCount}>
+                Próxima <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </nav>
         )}
       </div>
     </section>
