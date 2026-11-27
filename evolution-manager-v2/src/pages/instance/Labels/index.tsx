@@ -73,7 +73,9 @@ export default function ContactLabels() {
   };
   const updateContact = async (contact: Contact, patch: { labelIds?: string[]; birthDate?: string | null }) => {
     if (!instance) return;
-    const currentLabels = patch.labelIds || contact.labels.map((label) => label.id);
+    const currentLabels = (patch.labelIds || contact.labels.map((label) => label.id)).filter(
+      (labelId) => labelId !== BIRTHDAY_LABEL_ID,
+    );
     try {
       await saasApi.put(`/saas/instance/${instance.id}/contacts/${contact.id}/organization`, {
         ...(patch.labelIds !== undefined ? { labelIds: currentLabels } : {}),
