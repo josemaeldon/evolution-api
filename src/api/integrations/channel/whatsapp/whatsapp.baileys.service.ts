@@ -1061,6 +1061,11 @@ export class BaileysStartupService extends ChannelStartupService {
           `recv ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs (is latest: ${isLatest}, progress: ${progress}%), type: ${syncType}`,
         );
 
+        await this.contactHandle['contacts.upsert'](
+          contacts.filter((contact) => contact.id && (contact.name || contact.notify || contact.verifiedName)),
+        );
+        if (!messages.length && !chats.length) return;
+
         const instance: InstanceDto = { instanceName: this.instance.name };
 
         let timestampLimitToImport = null;
@@ -1193,10 +1198,6 @@ export class BaileysStartupService extends ChannelStartupService {
             messagesRaw.filter((msg) => !chatwootImport.isIgnorePhoneNumber(msg.key?.remoteJid)),
           );
         }
-
-        await this.contactHandle['contacts.upsert'](
-          contacts.filter((c) => !!c.notify || !!c.name).map((c) => ({ id: c.id, name: c.name ?? c.notify })),
-        );
 
         contacts = undefined;
         messages = undefined;
@@ -5040,21 +5041,20 @@ export class BaileysStartupService extends ChannelStartupService {
       const contactsByJid = new Map(contacts.map((contact) => [contact.remoteJid, contact]));
       const parsedParticipants = participants.map((participant) => {
         const phoneJid = participantPhoneJids.get(participant.id);
-        const contact =
-          contactsByJid.get(participant.id) ||
-          contactsByJid.get(normalizeJid(participant.id)) ||
-          (participant.lid ? contactsByJid.get(normalizeJid(participant.lid)) : undefined) ||
-          (phoneJid ? contactsByJid.get(phoneJid) : undefined);
+        const matchingContacts = [participant.id, normalizeJid(participant.id), participant.lid, phoneJid]
+          .filter((jid): jid is string => Boolean(jid))
+          .map((jid) => contactsByJid.get(normalizeJid(jid)))
+          .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact));
         return {
           ...participant,
           name:
-            meaningfulName(contact?.customName) ||
-            meaningfulName(contact?.pushName) ||
+            matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean) ||
+            matchingContacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean) ||
             meaningfulName(participant.name) ||
             meaningfulName(participant.notify) ||
             meaningfulName(participant.verifiedName),
           phoneNumber: phoneJid ? phoneJid.split('@')[0] : participant.phoneNumber,
-          imgUrl: participant.imgUrl ?? contact?.profilePicUrl,
+          imgUrl: participant.imgUrl ?? matchingContacts.map((contact) => contact.profilePicUrl).find(Boolean),
         };
       });
 
@@ -5792,9 +5792,9 @@ export class BaileysStartupService extends ChannelStartupService {
         const resolvedCandidates = participantCandidates.flatMap((jid) => [
           participantJidMappings.get(jid) || normalizeParticipantJid(jid),
         ]);
-        const contact = [...participantCandidates.map(normalizeParticipantJid), ...resolvedCandidates]
+        const matchingContacts = [...participantCandidates.map(normalizeParticipantJid), ...resolvedCandidates]
           .map((jid) => contactsByJid.get(jid))
-          .find(Boolean);
+          .filter((contact): contact is NonNullable<typeof contact> => Boolean(contact));
         const meaningfulName = (name?: string | null) => {
           const value = name?.trim();
           return value && !/^\+?\d[\d\s().:-]*$/.test(value) ? value : undefined;
@@ -5802,7 +5802,10 @@ export class BaileysStartupService extends ChannelStartupService {
         const historyName = participantCandidates
           .map((jid) => senderNamesFromHistory.get(normalizeParticipantJid(jid)))
           .find(Boolean);
-        const contactName = meaningfulName(contact?.customName) || meaningfulName(contact?.pushName) || historyName;
+        const contactName =
+          matchingContacts.map((contact) => meaningfulName(contact.customName)).find(Boolean) ||
+          matchingContacts.map((contact) => meaningfulName(contact.pushName)).find(Boolean) ||
+          historyName;
         const messageName = meaningfulName(message.pushName);
         const participantJid = participantCandidates[0];
         const resolvedParticipantJid = participantJid ? participantJidMappings.get(participantJid) : undefined;

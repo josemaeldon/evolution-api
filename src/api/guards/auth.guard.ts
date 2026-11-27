@@ -53,9 +53,10 @@ async function apikey(req: Request, _: Response, next: NextFunction) {
       const [, area, action] = path.split('/');
       if (
         (area === 'chat' && !USER_CHAT_ACTIONS.has(action)) ||
+        (area === 'group' && (action !== 'participants' || req.method !== 'GET')) ||
         (area === 'message' && action === 'sendStatus') ||
         (area === 'pix' && action !== 'create' && action !== 'create-sicoob') ||
-        !['chat', 'message', 'pix', 'forms'].includes(area)
+        !['chat', 'message', 'pix', 'forms', 'group'].includes(area)
       ) {
         throw new ForbiddenException('Acesso restrito ao chat');
       }

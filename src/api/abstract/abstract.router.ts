@@ -97,7 +97,7 @@ export abstract class RouterBroker {
     const { request, ClassRef, schema, execute } = args;
 
     const instance = request.params as unknown as InstanceDto;
-    const body = request.body;
+    const body = request.body && typeof request.body === 'object' ? request.body : {};
 
     let groupJid = body?.groupJid;
 
@@ -113,13 +113,9 @@ export abstract class RouterBroker {
       groupJid = groupJid + '@g.us';
     }
 
-    Object.assign(body, {
-      groupJid: groupJid,
-    });
-
     const ref = new ClassRef();
 
-    Object.assign(ref, body);
+    Object.assign(ref, body, { groupJid });
 
     const v = validate(ref, schema);
 

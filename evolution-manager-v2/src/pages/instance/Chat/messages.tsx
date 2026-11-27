@@ -712,19 +712,22 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
     return new Map(contacts.map((contact) => [normalizeJid(contact.remoteJid), contact]));
   }, [contacts]);
-  const groupParticipantNames = useMemo(() => {
+  const groupParticipantIdentity = useMemo(() => {
     const normalizeJid = (jid: string) => jid.replace(/:\d+(?=@)/, "");
     const names = new Map<string, string>();
+    const phones = new Map<string, string>();
     groupParticipants.forEach((participant: { id?: string; lid?: string; phoneNumber?: string; name?: string }) => {
       const name = participant.name?.trim();
-      if (!name || /^\+?\d[\d\s().:-]*$/.test(name)) return;
+      const phone = participant.phoneNumber?.split("@")[0];
       [participant.id, participant.lid, participant.phoneNumber].filter((jid): jid is string => Boolean(jid)).forEach((jid) => {
         const normalized = normalizeJid(jid);
-        names.set(normalized, name);
-        names.set(normalized.split("@")[0], name);
+        for (const key of [normalized, normalized.split("@")[0]]) {
+          if (name && !/^\+?\d[\d\s().:-]*$/.test(name)) names.set(key, name);
+          if (phone) phones.set(key, phone);
+        }
       });
     });
-    return names;
+    return { names, phones };
   }, [groupParticipants]);
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -1551,11 +1554,14 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
       .map((name) => name?.trim())
       .find((name) => name && !/^\+?\d[\d\s().:-]*$/.test(name));
     const groupSenderName = participantCandidates
-      .map((jid) => groupParticipantNames.get(jid) || groupParticipantNames.get(jid.split("@")[0]))
+      .map((jid) => groupParticipantIdentity.names.get(jid) || groupParticipantIdentity.names.get(jid.split("@")[0]))
+      .find(Boolean);
+    const groupSenderPhone = participantCandidates
+      .map((jid) => groupParticipantIdentity.phones.get(jid) || groupParticipantIdentity.phones.get(jid.split("@")[0]))
       .find(Boolean);
     const messageSenderName = message.pushName?.trim();
     const hasNumericSenderName = Boolean(messageSenderName && /^\+?\d[\d:]*$/.test(messageSenderName));
-    const senderName = contactSenderName || groupSenderName || (!hasNumericSenderName ? messageSenderName : "") || (participant ? normalizeJid(participant).split("@")[0] : "");
+    const senderName = contactSenderName || groupSenderName || (!hasNumericSenderName ? messageSenderName : "") || groupSenderPhone || (participant ? normalizeJid(participant).split("@")[0] : "");
 
     return (
       <div key={message.key.id} data-message-id={message.key.id} className="mb-4 flex justify-start">
