@@ -167,6 +167,7 @@
   "sidebar": {
     "dashboard": "Visión General",
     "chat": "Chat",
+    "contacts": "Contactos",
     "configurations": "Configuraciones",
     "settings": "Comportamiento",
     "proxy": "Proxy",

@@ -209,6 +209,7 @@
   "sidebar": {
     "dashboard": "Dashboard",
     "chat": "Chat",
+    "contacts": "Contacts",
     "configurations": "Configurations",
     "settings": "Settings",
     "proxy": "Proxy",
