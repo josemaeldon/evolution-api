@@ -153,6 +153,7 @@ export const MessageSubtype = [
   'documentWithCaptionMessage',
   'viewOnceMessage',
   'viewOnceMessageV2',
+  'viewOnceMessageV2Extension',
 ];
 
 export const Integration = {

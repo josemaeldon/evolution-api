@@ -4305,10 +4305,12 @@ export class BaileysStartupService extends ChannelStartupService {
         throw 'Message not found';
       }
 
-      for (const subtype of MessageSubtype) {
-        if (msg.message[subtype]) {
-          msg.message = msg.message[subtype].message;
-        }
+      // Album media can be wrapped by both associatedChildMessage and a
+      // disappearing/view-once envelope. Unwrap each layer before downloading.
+      for (let depth = 0; depth < 10; depth++) {
+        const subtype = MessageSubtype.find((type) => msg.message?.[type]?.message);
+        if (!subtype) break;
+        msg.message = msg.message[subtype].message;
       }
 
       if ('messageContextInfo' in msg.message && Object.keys(msg.message).length === 1) {

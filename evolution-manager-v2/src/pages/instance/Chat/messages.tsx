@@ -413,7 +413,11 @@ const normalizeMessageForDisplay = (message: Message): Message => {
 
   return {
     ...message,
-    message: content,
+    message: {
+      ...content,
+      ...(message.message?.mediaUrl && { mediaUrl: message.message.mediaUrl }),
+      ...(message.message?.base64 && { base64: message.message.base64 }),
+    },
     messageType: contentType || message.messageType,
   };
 };
@@ -632,6 +636,13 @@ const MessageContent = ({ message, instanceName, token }: { message: Message; in
 
     case "secretEncryptedMessage":
       return <span className="text-sm text-muted-foreground">Mensagem editada (conteúdo indisponível)</span>;
+
+    case "albumMessage": {
+      const images = Number(message.message?.albumMessage?.expectedImageCount) || 0;
+      const videos = Number(message.message?.albumMessage?.expectedVideoCount) || 0;
+      const parts = [images && `${images} foto${images === 1 ? "" : "s"}`, videos && `${videos} vídeo${videos === 1 ? "" : "s"}`].filter(Boolean);
+      return <span className="text-sm text-muted-foreground">Álbum com {parts.join(" e ") || "mídias"} · Aguardando mídias</span>;
+    }
 
     default:
       // Fallback for unknown message types
@@ -1347,8 +1358,16 @@ function Messages({ contacts = [], contactVariables, headerNameOverride, headerA
         if (!targetIds.has(targetId) && reaction.text) visible.push(message);
       });
 
+    const albumParentsWithMedia = new Set(
+      visible.flatMap((message) => {
+        const content = messageContent(message);
+        const association = content.messageContextInfo?.messageAssociation || content.associatedChildMessage?.message?.messageContextInfo?.messageAssociation;
+        return association?.associationType === 1 && association.parentMessageKey?.id ? [association.parentMessageKey.id] : [];
+      }),
+    );
+
     return {
-      visibleMessages: visible.map((message) => {
+      visibleMessages: visible.filter((message) => message.messageType !== "albumMessage" || !albumParentsWithMedia.has(message.key.id)).map((message) => {
         const editedContent = edits.get(message.key.id);
         return editedContent ? normalizeMessageForDisplay({ ...message, message: editedContent, status: "EDITED" }) : message;
       }),
